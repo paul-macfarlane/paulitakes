@@ -53,5 +53,5 @@ Tie-break rules Paul set: bugs before features, then small before large.
 
 ## Working the backlog
 
-- `/task next` picks the first unblocked todo in build order (the Priority list above wins while it has open items). `/task FND-3` runs a specific one.
+- `/task next` or `$task next` ([shared workflow](../docs/harness/workflows/task.md)) picks the first unblocked todo in build order (the Priority list above wins while it has open items). `/task FND-3` runs a specific one.
 - Later epics are intentionally lighter — flesh out a task's acceptance criteria when you reach it, referencing the relevant FR-x.y and technical-design section.

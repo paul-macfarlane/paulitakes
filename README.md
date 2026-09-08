@@ -8,6 +8,10 @@ architecture in [`docs/technical-design.md`](docs/technical-design.md),
 decisions in [`docs/adr/`](docs/adr/), work backlog in
 [`backlog/`](backlog/).
 
+## Agent workflows
+
+Start with [AGENTS.md](AGENTS.md) and the [shared harness](docs/harness/README.md). Codex `$task`, `$backlog`, `$feedback`, `$ask`, `$adr`, `$verify`, and `$worktree` use the same workflows as Claude’s slash commands.
+
 ## Local development
 
 ```bash
