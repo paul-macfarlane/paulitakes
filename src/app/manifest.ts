@@ -6,7 +6,8 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "Paulitakes",
     short_name: "Paulitakes",
-    description: "Hot takes, cold analysis. A mobile-first sports blog.",
+    description:
+      "Sports analysis. Stories. Cheap laughs. A sports blog from Paul and guest authors.",
     start_url: "/",
     display: "standalone",
     background_color: "#fafcfe",
