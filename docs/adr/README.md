@@ -2,7 +2,7 @@
 
 Short documents capturing a significant technical/architectural decision, its context, and consequences. New records use `template.md`, numbered sequentially (`NNNN-kebab-title.md`). Once merged, an ADR is immutable — supersede it with a new one rather than editing (link both ways).
 
-Create one with `/adr <title>` whenever a choice is non-obvious, hard to reverse, or contradicts an existing decision. If a decision changes `docs/technical-design.md`, update that doc too and reference the ADR.
+Create one with `/adr <title>` or `$adr <title>` ([shared workflow](../harness/workflows/adr.md)) whenever a choice is non-obvious, hard to reverse, or contradicts an existing decision. If a decision changes `docs/technical-design.md`, update that doc too and reference the ADR.
 
 ## Index
 
@@ -36,3 +36,4 @@ Create one with `/adr <title>` whenever a choice is non-obvious, hard to reverse
 | [0026](0026-account-deletion-anonymization.md)                       | Account deletion: uniform comment anonymization, refusals     | Accepted |
 | [0027](0027-author-post-deletion-and-transfer.md)                    | Author post deletion, admin post transfer, narrowed refusal   | Accepted |
 | [0028](0028-viewer-local-dates.md)                                   | Viewer-local dates via client island; same-day Updated hidden | Accepted |
+| [0029](0029-shared-agent-harness.md)                                 | Shared agent harness with host adapters                       | Accepted |
