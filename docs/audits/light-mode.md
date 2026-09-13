@@ -10,7 +10,7 @@ The opt-in capture checks route success, light theme, hydrated article/editor/an
 
 ## Visual judgment
 
-Reviewed the feed, long-form article, admin post list, published-post editor and populated analytics at both widths. Body text, muted bylines, field labels, bordered controls, table headings, chart labels and action emphasis remain distinguishable. The cool near-white background and restrained borders support long-form reading; making every border or muted label darker would be a preference, not an evidence-backed correction. No application palette or component was changed.
+Reviewed the feed, long-form article, admin post list, published-post editor and populated analytics at both widths. Body text, muted bylines, field labels, bordered controls, table headings, chart labels and action emphasis remain distinguishable. The cool near-white background and restrained borders support long-form reading; making every border or muted label darker would be a preference, not an evidence-backed correction. No palette change was needed. A subsequent dark-mode audit corrected the shared chart label selector; see `dark-mode.md`.
 
 This is representative visual evidence, not an exhaustive accessibility certification. Focus/error states and real OAuth flows are outside these captures.
 
@@ -19,12 +19,12 @@ This is representative visual evidence, not an exhaustive accessibility certific
 Use an empty dedicated localhost database whose name ends in `_light_audit` (this run used `paulitakes_light_audit` on the documented local port 5434). Supply `DATABASE_URL` and synthetic values matching the requirements in `.env.example` through the process environment. OAuth credentials can be `ci-dummy`; use a synthetic Better Auth secret of at least 32 characters and analytics seed of at least 16. Never copy or inspect live environment files. Migrate the dedicated database with `corepack pnpm db:migrate`.
 
 ```sh
-LIGHT_CAPTURE=1 corepack pnpm test:e2e e2e/capture-light.spec.ts --project chromium --no-deps
+THEME_CAPTURE=1 corepack pnpm test:e2e e2e/capture-theme.spec.ts --project chromium --no-deps
 ```
 
 Local Turbopack startup stalled on this machine. Starting `corepack pnpm exec next dev --webpack` with the same synthetic environment before the capture worked; Playwright reused that local server. The production validation also used webpack. No application compiler setting was changed.
 
-The capture refuses non-local or non-audit database names, uses the existing session/fixture helpers, and cleans up its rows. Screenshots go to ignored `test-results/review-screenshots/light-mode/`. The `light-mode-audit` PR label opts into a separate empty CI database and seven-day GitHub Actions artifact. Images never enter Git; regenerate expired evidence when needed.
+The capture now runs both themes serially. The capture refuses non-local or non-audit database names, uses the existing session/fixture helpers, and cleans up its rows. Screenshots go to ignored `test-results/review-screenshots/light-mode/`. The `light-mode-audit` PR label opts into a separate empty CI database and seven-day GitHub Actions artifact. Images never enter Git; regenerate expired evidence when needed.
 
 ## Validation
 

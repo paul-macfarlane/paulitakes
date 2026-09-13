@@ -74,22 +74,25 @@ jobs:
 
       - run: pnpm test:e2e
 
-      - name: Capture light-mode audit
+      - name: Capture theme audit
         if: contains(github.event.pull_request.labels.*.name, 'light-mode-audit')
         env:
           DATABASE_URL: postgres://paulitakes:paulitakes@localhost:5432/paulitakes_light_audit
           PGPASSWORD: paulitakes
-          LIGHT_CAPTURE: "1"
+          THEME_CAPTURE: "1"
         run: |
           createdb -h localhost -p 5432 -U paulitakes paulitakes_light_audit
           pnpm db:migrate
-          pnpm test:e2e e2e/capture-light.spec.ts --project chromium --no-deps
+          pnpm test:e2e e2e/capture-theme.spec.ts --project chromium --no-deps
 
       - name: Upload review screenshots
         if: success() && contains(github.event.pull_request.labels.*.name, 'light-mode-audit')
         uses: actions/upload-artifact@v4
         with:
           name: light-mode-audit-pr-${{ github.event.pull_request.number }}
-          path: test-results/review-screenshots/light-mode/
+          path: |
+            test-results/review-screenshots/light-mode/
+            test-results/review-screenshots/dark-mode/analytics-*.png
+            test-results/review-screenshots/dark-mode/article-*.png
           if-no-files-found: error
           retention-days: 7
