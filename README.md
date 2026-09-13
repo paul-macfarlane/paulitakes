@@ -1,6 +1,11 @@
 # Paulitakes
 
-Mobile-first sports blog. Next.js App Router · TypeScript · Tailwind +
+Sports analysis. Stories. Cheap laughs.
+
+A mobile-first sports blog from Paul and guest authors, mixing analysis,
+storytelling, and humor. Taking sports seriously, and ourselves a little less so.
+
+Next.js App Router · TypeScript · Tailwind +
 shadcn/ui · Drizzle · Neon Postgres (Docker locally) · Better Auth.
 
 Docs: vision in [`docs/vision.md`](docs/vision.md), product spec in [`docs/product-doc.md`](docs/product-doc.md), locked

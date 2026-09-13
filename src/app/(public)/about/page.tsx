@@ -4,7 +4,7 @@ import Link from "next/link";
 export const metadata: Metadata = {
   title: "About",
   description:
-    "What Paulitakes is, who writes it, and how signing in with Google or Discord works.",
+    "Meet Paulitakes: sports analysis, storytelling, and cheap laughs from Paul and guest authors. Read about the site and how to join the conversation.",
   alternates: { canonical: "/about" },
 };
 
@@ -17,11 +17,17 @@ export default function AboutPage() {
       <article className="prose dark:prose-invert">
         <h1>About Paulitakes</h1>
         <p>
-          Paulitakes is a sports blog: hot takes, cold analysis. Paul — and the
-          occasional guest author — publishes takes here: opinion pieces,
-          analysis, and reactions, almost entirely sports-related. It&apos;s
-          built mobile-first, so it reads best exactly where you argue about
-          sports anyway.
+          Paulitakes is a sports blog for people who take the games seriously
+          but can still laugh at how much they care. I&apos;m Paul, and I write
+          about sports through analysis, stories, and jokes that occasionally
+          deserve a better editor.
+        </p>
+        <p>
+          Sometimes that means digging into why a team works. Sometimes it means
+          a personal story, a ridiculous comparison, or trying to make sense of
+          a loss that should not have ruined my evening. Guest authors join in
+          too. The point is to have something to say and make it worth your time
+          to read.
         </p>
 
         <h2>What you can do here</h2>
