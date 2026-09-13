@@ -9,7 +9,7 @@ import { ImageResponse } from "next/og";
 // Colors are the rendered ADR-0024 brand values: theme tokens are CSS-only
 // and unavailable inside ImageResponse.
 
-export const alt = "Paulitakes — Hot takes, cold analysis.";
+export const alt = "Paulitakes — Sports analysis. Stories. Cheap laughs.";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -77,9 +77,9 @@ export default async function Image() {
             marginTop: 28,
           }}
         >
-          <span style={{ color: "#ea6f2f" }}>Hot takes,</span>
+          <span style={{ color: "#ea6f2f" }}>Sports analysis.</span>
           <span style={{ color: "#96a0ab", marginLeft: 14 }}>
-            cold analysis.
+            Stories. Cheap laughs.
           </span>
         </div>
       </div>
