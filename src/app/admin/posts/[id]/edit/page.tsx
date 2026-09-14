@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { ReviewNavigation } from "@/app/admin/posts/[id]/edit/_components/review-navigation";
 import { PostEditorSection } from "@/app/admin/posts/_components/post-editor-section";
 import { CommentLockToggle } from "@/app/admin/posts/[id]/edit/_components/comment-lock-toggle";
 import { PostDeleteControls } from "@/app/admin/posts/[id]/edit/_components/post-delete-controls";
@@ -50,6 +51,7 @@ export default async function EditPostPage({
         initialPost={post}
       >
         <div className="mb-6 flex flex-col gap-4">
+          <ReviewNavigation postId={post.id} />
           {post.hasPendingChanges ? (
             <PostPendingControls
               postId={post.id}

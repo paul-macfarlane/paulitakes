@@ -27,7 +27,9 @@ vi.mock("next/cache", () => ({ revalidateTag: vi.fn() }));
 const { revalidateTag } = await import("next/cache");
 const { getProposal, listProposals, applyProposal, rejectProposal } =
   await import("./proposals");
-const { submitProposalService } = await import("@/lib/proposals/service");
+const { submitProposalService, listProposalsService } =
+  await import("@/lib/proposals/service");
+const { getSession } = await import("@/lib/auth/session");
 const { getEditablePost } = await import("@/lib/posts/admin");
 const { updatePost } = await import("./crud");
 const { discardPostChanges, publishPostChanges } = await import("./draft");
@@ -592,4 +594,28 @@ describe("immutable review proposals and human decisions", () => {
         .where(eq(editProposals.postId, post.id)),
     ).toHaveLength(0);
   });
+});
+
+it("paginates retained review history without repeating tied timestamps", async () => {
+  const post = await seed("history-pages");
+  const proposal = await propose(post.id);
+  await testDb.insert(editProposals).values(
+    Array.from({ length: 50 }, () => ({
+      ...proposal,
+      id: crypto.randomUUID(),
+      status: "rejected" as const,
+      decidedAt: new Date(),
+    })),
+  );
+  const session = (await getSession())!;
+  const first = await listProposalsService(post.id, session);
+  const second = await listProposalsService(post.id, session, 2);
+  const third = await listProposalsService(post.id, session, 3);
+  expect(first.ok && first.data.length).toBe(50);
+  expect(second.ok && second.data.length).toBe(1);
+  expect(third.ok && third.data.length).toBe(0);
+  if (!first.ok || !second.ok) throw new Error("Missing history");
+  expect(
+    new Set([...first.data, ...second.data].map((row) => row.id)).size,
+  ).toBe(51);
 });
