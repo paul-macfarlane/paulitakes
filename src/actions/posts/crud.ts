@@ -8,7 +8,12 @@ import { z } from "zod";
 
 import { actionSession } from "@/lib/auth/guards";
 import { Action } from "@/lib/auth/permissions";
-import { postInputSchema, postUpdateSchema } from "@/lib/posts/input";
+import {
+  editVersionSchema,
+  postInputSchema,
+  postUpdateSchema,
+  type SavedPost,
+} from "@/lib/posts/input";
 import {
   createPostService,
   deletePostService,
@@ -21,7 +26,7 @@ import {
 
 export async function createPost(
   input: unknown,
-): Promise<ActionResult<{ id: string; slug: string }>> {
+): Promise<ActionResult<SavedPost>> {
   // Session/role checked before parsing input: an unauthenticated or
   // unauthorized caller gets only "Not authorized.", never field-level
   // validation feedback (or a 100KB body parsed) for input it was never
@@ -43,7 +48,8 @@ export async function createPost(
 export async function updatePost(
   id: string,
   input: unknown,
-): Promise<ActionResult<{ id: string; slug: string }>> {
+  expectedVersion: string,
+): Promise<ActionResult<SavedPost>> {
   // Session/role checked before parsing anything: an unauthenticated or
   // unauthorized caller gets only "Not authorized.", never field-level
   // validation feedback (engineering rules: session -> role -> everything
@@ -63,7 +69,12 @@ export async function updatePost(
     return { ok: false, error: parsed.error.issues[0]!.message };
   }
 
-  return updatePostService(idResult.data, parsed.data, session);
+  const version = editVersionSchema.safeParse(expectedVersion);
+  if (!version.success) {
+    return { ok: false, error: "Reload this editor before saving." };
+  }
+
+  return updatePostService(idResult.data, parsed.data, session, version.data);
 }
 
 export async function deletePost(

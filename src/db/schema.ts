@@ -140,6 +140,11 @@ export const posts = pgTable(
     authorId: text("author_id")
       .notNull()
       .references(() => user.id),
+    // Mutable editor identity, including lifecycle/ownership changes (ADR-0030).
+    editVersion: uuid("edit_version")
+      .notNull()
+      .defaultRandom()
+      .$onUpdate(() => crypto.randomUUID()),
     title: text("title").notNull(),
     slug: text("slug").notNull().unique(),
     bodyMd: text("body_md").notNull(),

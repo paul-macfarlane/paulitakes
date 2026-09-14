@@ -37,17 +37,19 @@ Write tasks as **goals**: the outcome plus the FR-x.y / technical-design § that
 | `12-feed.md`            | `FEED`  | RSS feed for reader subscriptions                       |
 | `13-simplify.md`        | `SIMP`  | Feature simplicity scan: keep / simplify / drop         |
 | `14-media.md`           | `MEDIA` | Image uploads via Vercel Blob (thumbnail, banner, body) |
+| `15-ai-review.md`       | `AIR`   | AI editorial review and safe concurrent saves           |
 
-## Priority (set 2026-08-27)
+## Priority (updated 2026-09-14)
 
 Open work, in the order to pick it up. Overrides the epic-table order while any of these are open.
 
-1. **SEO-10** — home-page canonical (Search Console duplicate report). Bug; one small PR.
-2. **FEED-1..3** — RSS feed. Small, reader-facing; bank it before the big epic.
-3. **SIMP-1..2** — feature simplicity scan (audit doc, then Paul picks cuts) — runs before REV so it can prune scope first.
-4. **POST-11** — linkable headings. Quick hitter; bank it before the big epic.
-5. **REV-1..6** — revisions. Largest open epic and author-only; nothing is blocked on it.
-6. **MEDIA-1..4** — image uploads.
+1. **AIR-1..6** — AI review, including the shared safe-save foundation; Paul prioritized it before broader collaboration on September 14.
+2. **SEO-10** — home-page canonical (Search Console duplicate report). Bug; one small PR.
+3. **FEED-1..3** — RSS feed. Small, reader-facing; bank it before the big epic.
+4. **SIMP-1..2** — feature simplicity scan (audit doc, then Paul picks cuts) — runs before REV so it can prune scope first.
+5. **POST-11** — linkable headings. Quick hitter; bank it before the big epic.
+6. **REV-1..6** — revisions. Largest open epic and author-only; nothing is blocked on it.
+7. **MEDIA-1..4** — image uploads.
 
 Tie-break rules Paul set: bugs before features, then small before large.
 
