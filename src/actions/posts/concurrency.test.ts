@@ -26,6 +26,7 @@ const { transitionPostStatus } = await import("./lifecycle");
 const { getEditablePost } = await import("@/lib/posts/admin");
 const { writePostColumns, transferPostsOwnership } =
   await import("@/lib/posts/data");
+const { setPostCommentsLockedColumn } = await import("@/lib/comments/data");
 const { revalidateTag } = await import("next/cache");
 let ids: StaffFixtureIds;
 const { authorSession, readerSession, noSession } = sessionSetters(
@@ -60,6 +61,22 @@ async function editVersion(id: string) {
 }
 
 describe("editor version contract", () => {
+  it("keeps comment moderation independent of unsaved editorial content", async () => {
+    const post = await seed("comment-lock");
+    const base = await editVersion(post.id);
+    expect(await setPostCommentsLockedColumn(post.id, true)).toBe(true);
+    expect(await editVersion(post.id)).toBe(base);
+    expect(
+      await updatePost(post.id, { bodyMd: "Unsaved editorial work." }, base),
+    ).toMatchObject({ ok: true });
+    const [row] = await testDb
+      .select()
+      .from(posts)
+      .where(eq(posts.id, post.id));
+    expect(row.commentsLocked).toBe(true);
+    expect(row.bodyMd).toBe("Unsaved editorial work.");
+  });
+
   it.each([false, true])(
     "rejects sequential stale saves, including empty payloads (public=%s)",
     async (published) => {

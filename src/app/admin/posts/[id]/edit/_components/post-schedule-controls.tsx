@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import {
   useContext,
   useState,
@@ -45,7 +44,6 @@ export function PostScheduleControls({
   // it too). Disable the inputs/buttons and say why.
   pendingChanges?: boolean;
 }) {
-  const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const flush = useContext(EditorFlushContext);
@@ -117,7 +115,9 @@ export function PostScheduleControls({
         // field and could be re-submitted.
         setPublishEdit(null);
         setArchiveEdit(null);
-        router.refresh();
+        // Reinitialize the editor token after this lifecycle write. Do not
+        // suppress beforeunload: typing during the action still needs protection.
+        window.location.reload();
       } catch {
         setError("Something went wrong. Please try again.");
       }

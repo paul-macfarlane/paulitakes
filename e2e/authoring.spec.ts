@@ -146,10 +146,15 @@ test.describe("authoring lifecycle", () => {
     const title = `E2E Staged ${crypto.randomUUID().slice(0, 8)}`;
     const { id, slug } = await createDraft(page, title);
 
-    // Publish the post first.
-    await clickUntil(page.getByRole("button", { name: "Publish now" }), () =>
-      expect(page.getByText("Published")).toBeVisible(),
-    );
+    // The action can stream the badge before its full reload. Wait for the
+    // new document before editing so the form and version are initialized.
+    await Promise.all([
+      page.waitForEvent("load"),
+      clickUntil(page.getByRole("button", { name: "Publish now" }), () =>
+        expect(page.getByText("Published")).toBeVisible(),
+      ),
+    ]);
+    await expect(page.locator("#slug")).not.toHaveValue("");
 
     // Edit the (now published) post's title. This stages a draft rather than
     // writing live; the first staged save surfaces the "Unpublished changes"
@@ -216,10 +221,15 @@ test.describe("authoring lifecycle", () => {
     const title = `E2E Discard ${crypto.randomUUID().slice(0, 8)}`;
     const { id, slug } = await createDraft(page, title);
 
-    // Publish the post first.
-    await clickUntil(page.getByRole("button", { name: "Publish now" }), () =>
-      expect(page.getByText("Published")).toBeVisible(),
-    );
+    // The action can stream the badge before its full reload. Wait for the
+    // new document before editing so the form and version are initialized.
+    await Promise.all([
+      page.waitForEvent("load"),
+      clickUntil(page.getByRole("button", { name: "Publish now" }), () =>
+        expect(page.getByText("Published")).toBeVisible(),
+      ),
+    ]);
+    await expect(page.locator("#slug")).not.toHaveValue("");
 
     // Stage an edit (same setup as the "stays staged" spec above).
     const newTitle = `${title} EDITED`;
