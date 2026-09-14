@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { useController, useForm } from "react-hook-form";
 import { applyProposal, rejectProposal } from "@/actions/posts/proposals";
 import { renderPostPreview } from "@/actions/preview";
 import { Button } from "@/components/ui/button";
@@ -45,9 +46,14 @@ export function ProposalReview({
   const [status, setStatus] = useState(proposal.status);
   const [stale, setStale] = useState(initiallyStale);
   // Opt in to each suggestion. Closed reviews show the recorded decision.
-  const [selected, setSelected] = useState<string[]>(
-    proposal.acceptedChangeIds ?? [],
-  );
+  const form = useForm<{ selectedChangeIds: string[] }>({
+    defaultValues: { selectedChangeIds: proposal.acceptedChangeIds ?? [] },
+  });
+  const { field: selection } = useController({
+    control: form.control,
+    name: "selectedChangeIds",
+  });
+  const selected = selection.value;
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -70,7 +76,7 @@ export function ProposalReview({
       : "Selected changes will update the saved post without publishing it.";
 
   function choose(ids: string[]) {
-    setSelected(ids);
+    selection.onChange(ids);
     setPreview(null);
     setError(null);
   }
@@ -117,7 +123,7 @@ export function ProposalReview({
       setStatus(
         decision === "apply" ? ProposalStatus.Applied : ProposalStatus.Rejected,
       );
-      if (decision === "reject") setSelected([]);
+      form.reset({ selectedChangeIds: decision === "reject" ? [] : selected });
       setNotice(
         decision === "apply"
           ? proposal.sourceIsPublic
@@ -255,6 +261,9 @@ export function ProposalReview({
                   <label className="flex min-h-11 items-center gap-3 font-medium">
                     <input
                       type="checkbox"
+                      name={selection.name}
+                      ref={index === 0 ? selection.ref : undefined}
+                      onBlur={selection.onBlur}
                       className="size-5 accent-primary"
                       checked={selected.includes(change.id)}
                       disabled={!editable}
