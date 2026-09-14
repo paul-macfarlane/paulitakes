@@ -490,17 +490,35 @@ export function PostEditor({
       {hasConflict ? (
         <EditorConflict
           onExport={() => {
-            const snapshot = {
-              ...form.getValues(),
-              videoUrl: initialPost?.videoUrl ?? null,
-            };
-            const blob = new Blob([JSON.stringify(snapshot, null, 2)], {
-              type: "application/json",
+            const values = form.getValues();
+            const category = categories.find(
+              (item) => item.id === values.categoryId,
+            );
+            const fields = [
+              ["Title", values.title],
+              ["Slug", values.slug],
+              ["Category", category?.name ?? "Unknown category"],
+              ["Category ID", String(values.categoryId)],
+              ["Tags", values.tags],
+              ["Thumbnail URL", values.thumbnailUrl],
+              ["Banner URL", values.bannerUrl],
+              ["Video URL", initialPost?.videoUrl],
+            ];
+            const markdown = [
+              "# My unsaved post",
+              "This copy contains your local edits. It has not replaced the latest saved version.",
+              ...fields.map(
+                ([label, value]) => `## ${label}\n\n${value || "(Not set)"}`,
+              ),
+              `## Post body\n\n${values.bodyMd}`,
+            ].join("\n\n");
+            const blob = new Blob([markdown], {
+              type: "text/markdown;charset=utf-8",
             });
             const url = URL.createObjectURL(blob);
             const link = document.createElement("a");
             link.href = url;
-            link.download = `unsaved-post-${postIdRef.current}.json`;
+            link.download = `unsaved-post-${postIdRef.current}.md`;
             link.click();
             setTimeout(() => URL.revokeObjectURL(url), 1000);
           }}

@@ -74,15 +74,17 @@ for (const status of ["draft", "published"] as const) {
         .getByRole("button", { name: "Download my unsaved work" })
         .click();
       const download = await downloadEvent;
-      const snapshot = JSON.parse(
-        await readFile((await download.path())!, "utf8"),
-      );
-      expect(snapshot).toMatchObject({
-        title: "My local title",
-        bodyMd: "My unsaved local body.",
-        tags: "local, notes",
-        categoryId: category.id,
-      });
+      expect(download.suggestedFilename()).toBe(`unsaved-post-${post.id}.md`);
+      const markdown = await readFile((await download.path())!, "utf8");
+      expect(markdown).toContain("## Title\n\nMy local title");
+      expect(markdown).toContain("## Tags\n\nlocal, notes");
+      expect(markdown).toContain(`## Category\n\n${category.name}`);
+      expect(markdown).toContain(`## Category ID\n\n${category.id}`);
+      expect(markdown).toContain("## Thumbnail URL\n\n");
+      expect(markdown).toContain("## Banner URL\n\n");
+      expect(markdown).toContain("## Video URL\n\n");
+      expect(markdown).toContain("## Slug\n\n");
+      expect(markdown).toMatch(/## Post body\n\nMy unsaved local body\.$/);
       await stale
         .getByRole("button", { name: "Reload latest", exact: true })
         .click();
