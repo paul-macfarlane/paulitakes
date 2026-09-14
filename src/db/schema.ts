@@ -8,6 +8,8 @@ import {
   bigserial,
   boolean,
   customType,
+  check,
+  uniqueIndex,
   index,
   integer,
   jsonb,
@@ -19,6 +21,14 @@ import {
   timestamp,
   uuid,
 } from "drizzle-orm/pg-core";
+
+import type {
+  ProposalSnapshot,
+  ProposalNotes,
+  SkillAttribution,
+  ProposalStatus,
+} from "@/lib/proposals/input";
+import type { ProposalDiff } from "@/lib/proposals/diff";
 
 import type { ModVerdictRecord } from "@/lib/comments/verdict";
 
@@ -219,10 +229,8 @@ export const postDrafts = pgTable("post_drafts", {
   // setPostTags) when the draft is promoted, so discarding/deleting a draft
   // never leaves orphan tags behind.
   tags: text("tags").array().notNull(),
-  // The CAS token guarding every buffer write and the promote transaction
-  // (src/lib/posts/data.ts) — replaces posts.draft_updated_at. Callers set
-  // this explicitly on every write (not $onUpdate) so it can be read back
-  // and compared before the next write is allowed to land.
+  // Display/audit timestamp. The parent editVersion guards saves and
+  // publish/discard, including multiple changes within one millisecond.
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
 });
 
@@ -418,3 +426,54 @@ export const revalidationState = pgTable("revalidation_state", {
     .notNull()
     .defaultNow(),
 });
+
+// Immutable review artifacts; closing a proposal only changes its decision
+// columns. Deleting a post removes its retained proposals with the article.
+export const editProposals = pgTable(
+  "edit_proposals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    postId: uuid("post_id")
+      .notNull()
+      .references(() => posts.id, { onDelete: "cascade" }),
+    origin: text("origin").notNull().default("agent"),
+    agentId: text("agent_id").notNull(),
+    agentLabel: text("agent_label").notNull(),
+    skill: jsonb("skill").$type<SkillAttribution>().notNull(),
+    sourceVersion: uuid("source_version").notNull(),
+    sourceIsPublic: boolean("source_is_public").notNull(),
+    base: jsonb("base").$type<ProposalSnapshot>().notNull(),
+    candidate: jsonb("candidate").$type<ProposalSnapshot>().notNull(),
+    diff: jsonb("diff").$type<ProposalDiff>().notNull(),
+    notes: jsonb("notes").$type<ProposalNotes>().notNull(),
+    status: text("status")
+      .$type<(typeof ProposalStatus)[keyof typeof ProposalStatus]>()
+      .notNull()
+      .default("open"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    decidedBy: text("decided_by").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    acceptedChangeIds: jsonb("accepted_change_ids").$type<string[]>(),
+    rejectedChangeIds: jsonb("rejected_change_ids").$type<string[]>(),
+    appliedVersion: uuid("applied_version"),
+  },
+  (table) => [
+    index("edit_proposals_post_created_idx").on(table.postId, table.createdAt),
+    uniqueIndex("edit_proposals_one_open_agent_idx")
+      .on(table.postId)
+      .where(sql`${table.status} = 'open' AND ${table.origin} = 'agent'`),
+    check(
+      "edit_proposals_status_check",
+      sql`${table.status} in ('open', 'applied', 'rejected', 'superseded')`,
+    ),
+    check("edit_proposals_origin_check", sql`${table.origin} = 'agent'`),
+    check(
+      "edit_proposals_decision_check",
+      sql`(${table.status} = 'open' AND ${table.decidedAt} is null) OR (${table.status} <> 'open' AND ${table.decidedAt} is not null)`,
+    ),
+  ],
+);
