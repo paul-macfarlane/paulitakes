@@ -20,6 +20,7 @@ for (const status of ["draft", "published"] as const) {
     });
     const context = await browser.newContext({
       baseURL: "http://localhost:3000",
+      permissions: ["clipboard-read", "clipboard-write"],
       viewport: {
         width: testInfo.project.name === "mobile-chrome" ? 390 : 1024,
         height: 844,
@@ -85,6 +86,28 @@ for (const status of ["draft", "published"] as const) {
       expect(markdown).toContain("## Video URL\n\n");
       expect(markdown).toContain("## Slug\n\n");
       expect(markdown).toMatch(/## Post body\n\nMy unsaved local body\.$/);
+      await stale.getByRole("button", { name: "Copy my unsaved work" }).click();
+      await expect(
+        stale.getByText("Copied your unsaved work as Markdown."),
+      ).toBeVisible();
+      expect(await stale.evaluate(() => navigator.clipboard.readText())).toBe(
+        markdown,
+      );
+      // A denied clipboard must leave the buffer and download recovery usable.
+      await stale.evaluate(() => {
+        navigator.clipboard.writeText = async () => {
+          throw new DOMException("Clipboard denied", "NotAllowedError");
+        };
+      });
+      await stale.getByRole("button", { name: "Copy my unsaved work" }).click();
+      await expect(
+        stale.getByText(
+          "Couldn't copy to the clipboard. Download your unsaved work instead.",
+        ),
+      ).toBeVisible();
+      await expect(
+        stale.getByRole("button", { name: "Download my unsaved work" }),
+      ).toBeEnabled();
       await stale
         .getByRole("button", { name: "Reload latest", exact: true })
         .click();

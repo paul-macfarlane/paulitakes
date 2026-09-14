@@ -480,6 +480,29 @@ export function PostEditor({
   const bannerValue = form.watch("bannerUrl");
   const { errors } = form.formState;
 
+  function unsavedMarkdown() {
+    const values = form.getValues();
+    const category = categories.find((item) => item.id === values.categoryId);
+    const fields = [
+      ["Title", values.title],
+      ["Slug", values.slug],
+      ["Category", category?.name ?? "Unknown category"],
+      ["Category ID", String(values.categoryId)],
+      ["Tags", values.tags],
+      ["Thumbnail URL", values.thumbnailUrl],
+      ["Banner URL", values.bannerUrl],
+      ["Video URL", initialPost?.videoUrl],
+    ];
+    return [
+      "# My unsaved post",
+      "This copy contains your local edits. It has not replaced the latest saved version.",
+      ...fields.map(
+        ([label, value]) => `## ${label}\n\n${value || "(Not set)"}`,
+      ),
+      `## Post body\n\n${values.bodyMd}`,
+    ].join("\n\n");
+  }
+
   return (
     <form
       onSubmit={form.handleSubmit(() => {
@@ -489,29 +512,9 @@ export function PostEditor({
     >
       {hasConflict ? (
         <EditorConflict
+          onCopy={() => navigator.clipboard.writeText(unsavedMarkdown())}
           onExport={() => {
-            const values = form.getValues();
-            const category = categories.find(
-              (item) => item.id === values.categoryId,
-            );
-            const fields = [
-              ["Title", values.title],
-              ["Slug", values.slug],
-              ["Category", category?.name ?? "Unknown category"],
-              ["Category ID", String(values.categoryId)],
-              ["Tags", values.tags],
-              ["Thumbnail URL", values.thumbnailUrl],
-              ["Banner URL", values.bannerUrl],
-              ["Video URL", initialPost?.videoUrl],
-            ];
-            const markdown = [
-              "# My unsaved post",
-              "This copy contains your local edits. It has not replaced the latest saved version.",
-              ...fields.map(
-                ([label, value]) => `## ${label}\n\n${value || "(Not set)"}`,
-              ),
-              `## Post body\n\n${values.bodyMd}`,
-            ].join("\n\n");
+            const markdown = unsavedMarkdown();
             const blob = new Blob([markdown], {
               type: "text/markdown;charset=utf-8",
             });
