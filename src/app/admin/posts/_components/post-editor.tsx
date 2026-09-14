@@ -6,6 +6,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 
+import { EditorConflict } from "./editor-conflict";
+import { ActionErrorCode } from "@/lib/shared/action-result";
+
 import { createPost, updatePost } from "@/actions/posts/crud";
 import { renderPostPreview } from "@/actions/preview";
 import { ExternalImage } from "@/components/external-image";
@@ -185,6 +188,9 @@ export function PostEditor({
   // autosave assigns one) — a ref avoids stale closures inside the
   // interval/save callback without forcing this to be reactive state.
   const postIdRef = useRef<string | null>(initialPost?.id ?? null);
+  const editVersionRef = useRef(initialPost?.editVersion ?? null);
+  const conflictRef = useRef(false);
+  const [hasConflict, setHasConflict] = useState(false);
   const lastSavedRef = useRef<EditorValues>(defaultValues);
   const savingRef = useRef(false);
   // Holds the in-flight save's promise so a concurrent caller (e.g. a
@@ -237,7 +243,10 @@ export function PostEditor({
   // CREATE a post, so typing alone on /new never auto-creates one.
   const performSave = useCallback(
     async (explicit: boolean): Promise<boolean> => {
-      const values = form.getValues();
+      if (conflictRef.current) return false;
+      // Copy the submitted snapshot: later keystrokes must remain dirty.
+      const values = { ...form.getValues() };
+      const expectedVersion = editVersionRef.current;
       const postId = postIdRef.current;
 
       let diff: Partial<ReturnType<typeof toActionInput>> | null = null;
@@ -252,34 +261,38 @@ export function PostEditor({
         }
       } else {
         diff = buildUpdateDiff(lastSavedRef.current, values);
-        if (Object.keys(diff).length === 0) return true;
+        // Explicit flush validates even an unchanged editor before lifecycle actions.
+        if (Object.keys(diff).length === 0 && !explicit) return true;
       }
 
-      // Never save over unresolved validation errors. `formState.isValid` isn't
-      // read during render, so react-hook-form doesn't keep it current (it only
-      // recomputes subscribed state) — reading it here returns a stale `false`
-      // that silently skips the first save. trigger() validates now and surfaces
-      // any errors inline. Runs after the no-op checks so an untouched draft
-      // doesn't flash required-field errors on the autosave tick.
-      if (!(await form.trigger())) {
-        setStatusIsError(true);
-        setStatus("Fix the highlighted field — changes aren't being saved.");
-        return false;
-      }
-
+      // Reserve the save before async validation so an interval tick and a
+      // toolbar click cannot submit the same version concurrently.
       savingRef.current = true;
       setStatusIsError(false);
       setStatus("Saving…");
 
       try {
+        if (!(await form.trigger())) {
+          setStatusIsError(true);
+          setStatus("Fix the highlighted field — changes aren't being saved.");
+          return false;
+        }
         const result =
           postId === null
             ? await createPost(toActionInput(values))
-            : await updatePost(postId, diff!);
+            : await updatePost(postId, diff!, expectedVersion!);
 
         if (!result.ok) {
+          if (result.code === ActionErrorCode.Conflict) {
+            conflictRef.current = true;
+            setHasConflict(true);
+          }
           setStatusIsError(true);
-          setStatus(result.error);
+          setStatus(
+            result.code === ActionErrorCode.Conflict
+              ? "Autosave paused: a newer edit exists."
+              : result.error,
+          );
           return false;
         }
 
@@ -291,6 +304,7 @@ export function PostEditor({
           form.setValue("slug", result.data.slug);
           savedSlug = result.data.slug;
         }
+        editVersionRef.current = result.data.editVersion;
         lastSavedRef.current = { ...values, slug: savedSlug };
 
         if (postId === null) {
@@ -466,6 +480,29 @@ export function PostEditor({
   const bannerValue = form.watch("bannerUrl");
   const { errors } = form.formState;
 
+  function unsavedMarkdown() {
+    const values = form.getValues();
+    const category = categories.find((item) => item.id === values.categoryId);
+    const fields = [
+      ["Title", values.title],
+      ["Slug", values.slug],
+      ["Category", category?.name ?? "Unknown category"],
+      ["Category ID", String(values.categoryId)],
+      ["Tags", values.tags],
+      ["Thumbnail URL", values.thumbnailUrl],
+      ["Banner URL", values.bannerUrl],
+      ["Video URL", initialPost?.videoUrl],
+    ];
+    return [
+      "# My unsaved post",
+      "This copy contains your local edits. It has not replaced the latest saved version.",
+      ...fields.map(
+        ([label, value]) => `## ${label}\n\n${value || "(Not set)"}`,
+      ),
+      `## Post body\n\n${values.bodyMd}`,
+    ].join("\n\n");
+  }
+
   return (
     <form
       onSubmit={form.handleSubmit(() => {
@@ -473,6 +510,27 @@ export function PostEditor({
       })}
       className="flex flex-col gap-6"
     >
+      {hasConflict ? (
+        <EditorConflict
+          onCopy={() => navigator.clipboard.writeText(unsavedMarkdown())}
+          onExport={() => {
+            const markdown = unsavedMarkdown();
+            const blob = new Blob([markdown], {
+              type: "text/markdown;charset=utf-8",
+            });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = `unsaved-post-${postIdRef.current}.md`;
+            link.click();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+          }}
+          onReload={() => {
+            unloadSuppressedRef.current = true;
+            window.location.reload();
+          }}
+        />
+      ) : null}
       <Field data-invalid={errors.title ? true : undefined}>
         <FieldLabel htmlFor="title">Title</FieldLabel>
         <Input

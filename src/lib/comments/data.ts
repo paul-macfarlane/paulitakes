@@ -358,7 +358,12 @@ export async function setPostCommentsLockedColumn(
 ): Promise<boolean> {
   const updated = await db
     .update(posts)
-    .set({ commentsLocked: locked })
+    .set({
+      commentsLocked: locked,
+      // Moderation state is outside the editorial snapshot. Preserve the
+      // current token atomically, without replacing it from an earlier read.
+      editVersion: sql`${posts.editVersion}`,
+    })
     .where(eq(posts.id, postId))
     .returning({ id: posts.id });
   return updated.length > 0;

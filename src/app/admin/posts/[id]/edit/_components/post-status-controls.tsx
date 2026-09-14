@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useContext, useState, useTransition } from "react";
 
 import { transitionPostStatus } from "@/actions/posts/lifecycle";
@@ -29,17 +28,12 @@ export function PostStatusControls({
   // rejects it too). Disable the buttons and say why.
   pendingChanges?: boolean;
 }) {
-  const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const flush = useContext(EditorFlushContext);
 
   function handle(target: PostStatus) {
     setError(null);
-    // isPending stays true for the awaited action (buttons disabled while the
-    // transition is in flight). router.refresh() then re-fetches the server
-    // status; a stray click in the brief gap before that re-render is
-    // harmless — transitionPostStatus is idempotent and CAS-guarded.
     startTransition(async () => {
       try {
         // Save the editor's in-progress edits first — transitionPostStatus
@@ -57,10 +51,10 @@ export function PostStatusControls({
           setError(result.error);
           return;
         }
-        // Re-fetch the edit page's server data so the badge + available
-        // transitions reflect the new status. The editor island keeps its
-        // in-progress edits across a soft refresh.
-        router.refresh();
+        // Lifecycle changes invalidate the loaded edit token. Remount from
+        // the server after our own change, but keep beforeunload protection:
+        // keystrokes typed after the flush must not be silently discarded.
+        window.location.reload();
       } catch {
         // A rejected RPC (network blip) must surface, not leave the controls
         // stuck disabled.

@@ -1,0 +1,1 @@
+ALTER TABLE "posts" ADD COLUMN "edit_version" uuid DEFAULT gen_random_uuid() NOT NULL;

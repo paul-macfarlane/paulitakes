@@ -112,6 +112,9 @@ The homepage features recent posts alongside a dedicated announcements section f
 - **FR-7.8** — Authoring and admin routes are restricted to the appropriate roles.
 - **FR-7.9** — An author may permanently delete one of their own posts that has never been public: Draft, or Scheduled with a future publish time, and only if the post has no comments. Admin may permanently delete any post regardless of status.
 - **FR-7.10** — Admin can transfer all of a user's posts to another active staff member (Author or Admin, not banned), e.g. to unblock that user's account deletion or reassign ownership.
+- **FR-7.11** — Every existing-post save carries the version loaded by the editor. Stale saves change nothing, stop autosave, and preserve all unsaved content/metadata with export and deliberate reload. This safety foundation ships with AI review and is reused by later collaboration.
+- **FR-7.12** — Requested AI reviews use the Paulitakes Editor brief, preserving each author's voice. Agents propose body/metadata edits separately, with complete visible differences and sourced editorial/fact-check/media notes. All authors' drafts and published posts are eligible. One open AI proposal per post, retained closed history; stale proposals require a new review. Only an authorized human applies selected changes; application to public posts stages privately and publication is separate. _(Planned AIR-3–6.)_
+- **FR-7.13** — Agent access is independently authenticated, scoped, revocable and auditable; it exposes only review content and proposal creation. No sessions, account data, comments, analytics, direct content writes or publishing capabilities. Local Codex is the first client. _(Planned AIR-5–6.)_
 
 ### 3.8 Analytics
 

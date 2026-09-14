@@ -13,6 +13,7 @@ import { Action, canPerformAction } from "@/lib/auth/permissions";
 import { isRenderableImageSrc } from "@/lib/content/image-src";
 import {
   categoryExists,
+  checkEditVersion,
   clearStagedDraft,
   deleteOwnNeverPublicPost,
   deletePostRow,
@@ -33,10 +34,11 @@ import {
   type PostDraft,
   type PostInput,
   type PostUpdate,
+  type SavedPost,
 } from "@/lib/posts/input";
 import { isPubliclyVisible } from "@/lib/posts/status";
 import {
-  CONFLICT_ERROR,
+  CONFLICT_RESULT,
   GENERIC_ERROR,
   NOT_AUTHORIZED_ERROR,
   type ActionResult,
@@ -46,7 +48,7 @@ import { IMMEDIATE } from "@/lib/shared/cache";
 export async function createPostService(
   data: PostInput,
   authorId: string,
-): Promise<ActionResult<{ id: string; slug: string }>> {
+): Promise<ActionResult<SavedPost>> {
   try {
     if (!(await categoryExists(data.categoryId))) {
       return { ok: false, error: "Unknown category." };
@@ -131,7 +133,8 @@ function draftContentEquals(a: PostDraft, b: PostDraft): boolean {
 async function stageDraftEdit(
   id: string,
   data: PostUpdate,
-): Promise<ActionResult<{ id: string; slug: string }>> {
+  expectedVersion: string,
+): Promise<ActionResult<SavedPost>> {
   const row = await loadStageDraftBase(id);
   if (!row) return { ok: false, error: "Post not found." };
 
@@ -192,24 +195,28 @@ async function stageDraftEdit(
   // the buffer so the post isn't stuck showing "pending changes" with its
   // status/schedule controls locked.
   if (draftContentEquals(snapshot, live)) {
-    const cleared = await clearStagedDraft(id, row.draftUpdatedAt);
-    if (!cleared) return { ok: false, error: CONFLICT_ERROR };
-    return { ok: true, data: { id, slug: snapshot.slug } };
+    const cleared = await clearStagedDraft(id, expectedVersion);
+    if (!cleared) return CONFLICT_RESULT;
+    return {
+      ok: true,
+      data: { id, slug: snapshot.slug, editVersion: cleared },
+    };
   }
 
-  const updated = await writeStagedDraft(id, row.draftUpdatedAt, snapshot);
+  const updated = await writeStagedDraft(id, expectedVersion, snapshot);
   if (!updated) {
-    return { ok: false, error: CONFLICT_ERROR };
+    return CONFLICT_RESULT;
   }
 
-  return { ok: true, data: { id, slug: snapshot.slug } };
+  return { ok: true, data: { id, slug: snapshot.slug, editVersion: updated } };
 }
 
 export async function updatePostService(
   id: string,
   data: PostUpdate,
   session: StaffSession,
-): Promise<ActionResult<{ id: string; slug: string }>> {
+  expectedVersion: string,
+): Promise<ActionResult<SavedPost>> {
   try {
     // Two independent reads on the editor's hottest path — issue them
     // concurrently; error precedence (not found -> ownership -> category)
@@ -231,8 +238,17 @@ export async function updatePostService(
       return { ok: false, error: NOT_AUTHORIZED_ERROR };
     }
 
+    if (existing.editVersion !== expectedVersion) {
+      return CONFLICT_RESULT;
+    }
+
     if (!categoryOk) {
       return { ok: false, error: "Unknown category." };
+    }
+
+    if (Object.keys(data).length === 0) {
+      const unchanged = await checkEditVersion(id, expectedVersion);
+      return unchanged ? { ok: true, data: unchanged } : CONFLICT_RESULT;
     }
 
     // A post that is publicly visible RIGHT NOW stages edits into its
@@ -246,7 +262,7 @@ export async function updatePostService(
     // already past its publish_at is live and does stage. Draft/archived
     // posts aren't public — write through.
     if (isPubliclyVisible(existing)) {
-      return await stageDraftEdit(id, data);
+      return await stageDraftEdit(id, data, expectedVersion);
     }
 
     // Below here the post is not publicly visible (draft, archived, or a
@@ -279,25 +295,15 @@ export async function updatePostService(
       columnUpdates.videoUrl = data.videoUrl;
     }
 
-    // Empty payload (a debounced autosave diffing to nothing): writing
-    // nothing and expiring caches over it would be pure waste — succeed
-    // without touching the DB or the cache.
-    if (Object.keys(columnUpdates).length === 0 && data.tags === undefined) {
-      return { ok: true, data: { id, slug: existing.slug } };
-    }
-
-    // A tags-only edit still needs to bump updated_at: the schema's
-    // $onUpdate hook (src/db/schema.ts) only fires on an actual
-    // `db.update(posts)` call, which would otherwise be skipped.
-    if (Object.keys(columnUpdates).length === 0) {
-      columnUpdates.updatedAt = new Date();
-    }
-
     const written = await writePostColumns(id, columnUpdates, {
+      expectedVersion,
       guardThumbnailInvariant: clearingThumbnail,
       tags: data.tags,
     });
     if (!written.ok) {
+      if (written.reason === "conflict") {
+        return CONFLICT_RESULT;
+      }
       if (written.reason === "thumbnail-invariant") {
         return {
           ok: false,
@@ -305,6 +311,13 @@ export async function updatePostService(
         };
       }
       return { ok: false, error: "That slug is taken." };
+    }
+
+    if (Object.keys(columnUpdates).length === 0 && data.tags === undefined) {
+      return {
+        ok: true,
+        data: { id, slug: nextSlug, editVersion: written.editVersion },
+      };
     }
 
     // Cheap and correct even for drafts: revalidating a tag nobody has
@@ -315,7 +328,10 @@ export async function updatePostService(
       revalidateTag(`post:${existing.slug}`, IMMEDIATE);
     }
 
-    return { ok: true, data: { id, slug: nextSlug } };
+    return {
+      ok: true,
+      data: { id, slug: nextSlug, editVersion: written.editVersion },
+    };
   } catch (err) {
     console.error("updatePost failed", err);
     return { ok: false, error: GENERIC_ERROR };

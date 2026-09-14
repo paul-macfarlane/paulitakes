@@ -1,3 +1,4 @@
+import { freshPostUpdater } from "@/test/helpers";
 import { eq, like } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
@@ -7,6 +8,7 @@ import { slugifyTitle } from "@/lib/posts/input";
 import { AUTHOR_DELETE_REFUSED_ERROR } from "@/lib/posts/service/crud";
 import {
   draftRowLoader,
+  loadEditVersion,
   registerPostSuiteLifecycle,
   seedPost as seedPostFixture,
   sessionSetters,
@@ -39,7 +41,12 @@ vi.mock("@/lib/auth/session", () => ({
 
 vi.mock("next/cache", () => ({ revalidateTag: vi.fn() }));
 
-const { createPost, updatePost, deletePost } = await import("./crud");
+const {
+  createPost,
+  updatePost: updateVersionedPost,
+  deletePost,
+} = await import("./crud");
+const updatePost = freshPostUpdater(testDb, updateVersionedPost);
 const { revalidateTag } = await import("next/cache");
 
 const { posts, postTags, tags } = schema;
@@ -346,10 +353,11 @@ describe("updatePost", () => {
       .set({ updatedAt: past })
       .where(eq(posts.id, post.id));
 
+    const editVersion = await loadEditVersion(testDb, post.id);
     const result = await updatePost(post.id, {});
     expect(result).toEqual({
       ok: true,
-      data: { id: post.id, slug: post.slug },
+      data: { id: post.id, slug: post.slug, editVersion },
     });
 
     const [after] = await testDb
