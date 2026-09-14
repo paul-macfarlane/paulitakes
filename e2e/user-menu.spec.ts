@@ -18,7 +18,9 @@ test.describe("signed-in user", () => {
     await page.goto("/");
     await page.getByRole("button", { name: "Account menu" }).click();
     // Regression: Base UI GroupLabel outside a Group crashed the menu here.
-    await expect(page.getByText(session.userName)).toBeVisible();
+    await expect(
+      page.getByRole("menu").getByText(session.userName, { exact: true }),
+    ).toBeVisible();
     await expect(page.getByRole("menuitem", { name: "Account" })).toBeVisible();
     await expect(
       page.getByRole("menuitem", { name: "Sign out" }),
