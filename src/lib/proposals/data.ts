@@ -178,7 +178,7 @@ export async function writeSelectedSnapshot(
   await tx.delete(postDrafts).where(eq(postDrafts.postId, postId));
   return result.editVersion;
 }
-export async function listProposalSummaries(tx: Tx, postId: string) {
+export async function listProposalSummaries(tx: Tx, postId: string, page = 1) {
   return tx
     .select({
       id: editProposals.id,
@@ -189,6 +189,7 @@ export async function listProposalSummaries(tx: Tx, postId: string) {
     })
     .from(editProposals)
     .where(eq(editProposals.postId, postId))
-    .orderBy(desc(editProposals.createdAt))
-    .limit(50);
+    .orderBy(desc(editProposals.createdAt), desc(editProposals.id))
+    .limit(50)
+    .offset((page - 1) * 50);
 }

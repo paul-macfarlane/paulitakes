@@ -200,6 +200,7 @@ export async function getProposalService(id: string, session: StaffSession) {
 export async function listProposalsService(
   postId: string,
   session: StaffSession,
+  page = 1,
 ) {
   try {
     if (!canPerformAction(session.user, Action.EditPost))
@@ -209,7 +210,7 @@ export async function listProposalsService(
         if (!mayEdit(session, post)) return NOT_FOUND;
         return {
           ok: true,
-          data: await listProposalSummaries(tx, postId),
+          data: await listProposalSummaries(tx, postId, page),
         } as const;
       })) ?? NOT_FOUND
     );
