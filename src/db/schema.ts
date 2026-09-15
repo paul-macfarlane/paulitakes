@@ -477,3 +477,66 @@ export const editProposals = pgTable(
     ),
   ],
 );
+
+// Credentials never contain a reusable token. Quota state is one bounded row
+// per credential; revocation is checked again under this row's lock at use.
+export const agentCredentials = pgTable(
+  "agent_credentials",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    label: text("label").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    scopes: jsonb("scopes").$type<string[]>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    readWindow: timestamp("read_window", { withTimezone: true }),
+    readCount: integer("read_count").notNull().default(0),
+    submitWindow: timestamp("submit_window", { withTimezone: true }),
+    submitCount: integer("submit_count").notNull().default(0),
+  },
+  (table) => [
+    check(
+      "agent_credentials_hash_check",
+      sql`${table.tokenHash} ~ '^[a-f0-9]{64}$'`,
+    ),
+    check(
+      "agent_credentials_expiry_check",
+      sql`${table.expiresAt} > ${table.createdAt}`,
+    ),
+    check(
+      "agent_credentials_scopes_check",
+      sql`jsonb_typeof(${table.scopes}) = 'array' AND jsonb_array_length(${table.scopes}) > 0 AND ${table.scopes} <@ '["content:read", "proposals:create"]'::jsonb`,
+    ),
+    check(
+      "agent_credentials_counts_check",
+      sql`${table.readCount} >= 0 AND ${table.submitCount} >= 0`,
+    ),
+  ],
+);
+
+// Receipts hold no article text. A deleted proposal leaves a tombstone so
+// retrying an old successful key can never recreate the deleted artifact.
+export const agentReceipts = pgTable(
+  "agent_receipts",
+  {
+    credentialId: uuid("credential_id")
+      .notNull()
+      .references(() => agentCredentials.id, { onDelete: "cascade" }),
+    key: uuid("key").notNull(),
+    requestHash: text("request_hash").notNull(),
+    postId: uuid("post_id").notNull(),
+    proposalId: uuid("proposal_id").references(() => editProposals.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.credentialId, table.key] }),
+    index("agent_receipts_proposal_idx").on(table.proposalId),
+  ],
+);

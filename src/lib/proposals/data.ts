@@ -25,11 +25,13 @@ export type ProposalRow = typeof editProposals.$inferSelect;
 export async function withLockedSource<T>(
   postId: string,
   work: (tx: Tx, post: ExistingPostForUpdate) => Promise<T>,
+  transaction?: Tx,
 ): Promise<T | null> {
-  return db.transaction(async (tx) => {
+  const run = async (tx: Tx) => {
     const post = await lockPostRow(tx, postId);
     return post ? work(tx, post) : null;
-  });
+  };
+  return transaction ? run(transaction) : db.transaction(run);
 }
 export async function withLockedProposal<T>(
   id: string,
