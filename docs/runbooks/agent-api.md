@@ -39,3 +39,7 @@ There is one open proposal per post across all agents. A source change or an une
 Across the configured agent API: 60 reads and 6 submissions per fixed 60-second window, persisted across instances. Authenticated invalid requests and retries consume quota; 429 includes `Retry-After` seconds. Missing, invalid or disabled tokens return 401, invalid contract 400, absent source 404, unsupported method 405. Errors use `{error: code, message, requestId}`; unexpected failures and oversized stored responses return sanitized 503. Responses remain capped at 1 MiB. Request size and upload timing rely on hosting limits; there is no custom application upload cap or timer, including locally (ADR-0033). Hosting-level rejections may use the provider’s error format rather than this API’s JSON errors. No database transaction is held while receiving the body.
 
 Application audit emits only the fixed operation, outcome, timestamp, server request UUID and server-owned principal and resolved post/proposal IDs. It never emits bearer tokens, request headers/URLs, article text, notes, payload hashes or raw exception messages. Hosting/proxy logging is separately configured by the operator; do not enable request-header/body capture. Authenticated API limits do not provide unauthenticated volumetric protection.
+
+## Local Codex client
+
+Use the [local MCP adapter setup](agent-mcp.md) with this same token. The adapter explicitly loads the installed editor skill and creates proposals through this API; it has no direct database or human-session access.
