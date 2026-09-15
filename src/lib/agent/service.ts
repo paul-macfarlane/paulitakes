@@ -18,7 +18,6 @@ import {
   reviewCategories,
 } from "./data";
 import {
-  AGENT_RESPONSE_LIMIT,
   AgentError,
   AgentOperation,
   AgentQuota,
@@ -28,52 +27,134 @@ import {
   requestDigest,
 } from "./contract";
 import { AgentFailure } from "./errors";
+import {
+  auditRequest,
+  errorResponse,
+  jsonResponse,
+  type Audit,
+  type Output,
+} from "./http";
 
-type Audit = { principalId?: string; postId?: string; proposalId?: string };
-type Output = { status: number; body: unknown };
+type OperationWork = (tx: Tx) => Promise<Output>;
+
+export async function handleAgentRequest(
+  request: Request,
+  operation: AgentOperation,
+  params?: Promise<{ id: string }>,
+): Promise<Response> {
+  const requestId = randomUUID();
+  const audit: Audit = {};
+  let status = 503;
+  try {
+    const quota =
+      operation === AgentOperation.Submit ? AgentQuota.Submit : AgentQuota.Read;
+    const bearer = await admitAgent(
+      request.headers.get("authorization"),
+      quota,
+    );
+    audit.principalId = AGENT_PRINCIPAL.id;
+    const work = await prepareOperation(request, operation, params, audit);
+
+    // Read the request before the operation transaction; serialize the response
+    // before committing so size/serialization failures roll back the write.
+    const result = await withAuthorizedAgent(bearer, async (tx) =>
+      jsonResponse(await work(tx), requestId),
+    );
+    status = result.status;
+    return result;
+  } catch (error) {
+    const result = errorResponse(error, requestId);
+    status = result.status;
+    return result;
+  } finally {
+    auditRequest(requestId, operation, status, audit);
+  }
+}
+
+export function unsupportedAgentMethod(allow: string): Response {
+  const requestId = randomUUID();
+  const result = errorResponse(new AgentFailure(AgentError.Method), requestId, {
+    Allow: allow,
+  });
+  auditRequest(requestId, AgentOperation.Unsupported, result.status, {});
+  return result;
+}
+
+async function prepareOperation(
+  request: Request,
+  operation: AgentOperation,
+  params: Promise<{ id: string }> | undefined,
+  audit: Audit,
+): Promise<OperationWork> {
+  const query = queryParameters(request);
+  if (operation !== AgentOperation.List && Object.keys(query).length > 0)
+    throw new AgentFailure(AgentError.Invalid);
+
+  switch (operation) {
+    case AgentOperation.List: {
+      const parsed = agentListSchema.safeParse(query);
+      if (!parsed.success) throw new AgentFailure(AgentError.Invalid);
+      return (tx) => listDrafts(tx, parsed.data.limit, parsed.data.after);
+    }
+    case AgentOperation.Read: {
+      const id = agentIdSchema.safeParse((await params)?.id);
+      if (!id.success) throw new AgentFailure(AgentError.Invalid);
+      return (tx) => readDraft(tx, id.data, audit);
+    }
+    case AgentOperation.Submit: {
+      const key = agentIdSchema.safeParse(
+        request.headers.get("idempotency-key"),
+      );
+      if (!key.success) throw new AgentFailure(AgentError.Invalid);
+      const input: unknown = await request.json().catch(() => {
+        throw new AgentFailure(AgentError.Invalid);
+      });
+      return (tx) => submitProposal(tx, input, key.data, audit);
+    }
+    default:
+      throw new AgentFailure(AgentError.Method);
+  }
+}
+
 function queryParameters(request: Request) {
   const params = new URL(request.url).searchParams;
   if (new Set(params.keys()).size !== [...params.keys()].length)
     throw new AgentFailure(AgentError.Invalid);
   return Object.fromEntries(params);
 }
-function response(
-  output: Output,
-  requestId: string,
-  extra?: Record<string, string>,
-) {
-  const json = JSON.stringify(output.body);
-  if (Buffer.byteLength(json) > AGENT_RESPONSE_LIMIT)
-    throw new AgentFailure(AgentError.Unavailable);
-  return new Response(json, {
-    status: output.status,
-    headers: {
-      "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": "private, no-store",
-      "X-Content-Type-Options": "nosniff",
-      "X-Request-Id": requestId,
-      ...extra,
-    },
-  });
+
+async function listDrafts(
+  tx: Tx,
+  limit: number,
+  after?: string,
+): Promise<Output> {
+  const rows = await listSources(tx, limit, after);
+  const items = rows.slice(0, limit);
+  return {
+    status: 200,
+    body: { items, nextCursor: rows.length > limit ? items.at(-1)!.id : null },
+  };
 }
-function auditRequest(
-  requestId: string,
-  operation: AgentOperation,
-  status: number,
+
+function proposalResult(
+  proposal: { id: string; postId: string },
+  replayed: boolean,
   audit: Audit,
-) {
-  console.info(
-    JSON.stringify({
-      event: "agent_api",
-      at: new Date().toISOString(),
-      requestId,
-      operation,
-      status,
-      ...audit,
-    }),
-  );
+): Output {
+  audit.postId = proposal.postId;
+  audit.proposalId = proposal.id;
+  return {
+    status: replayed ? 200 : 201,
+    body: {
+      id: proposal.id,
+      postId: proposal.postId,
+      reviewPath: `/admin/posts/${proposal.postId}/reviews/${proposal.id}`,
+      replayed,
+    },
+  };
 }
-async function readSource(tx: Tx, id: string, audit: Audit): Promise<Output> {
+
+async function readDraft(tx: Tx, id: string, audit: Audit): Promise<Output> {
   const source = await withLockedSource(
     id,
     async (lockedTx, post) => {
@@ -101,7 +182,8 @@ async function readSource(tx: Tx, id: string, audit: Audit): Promise<Output> {
   if (!source) throw new AgentFailure(AgentError.Missing);
   return { status: 200, body: source };
 }
-async function submit(
+
+async function submitProposal(
   tx: Tx,
   input: unknown,
   key: string,
@@ -115,23 +197,13 @@ async function submit(
     if (receipt.requestHash !== hash)
       throw new AgentFailure(AgentError.Conflict);
     if (!receipt.proposalId) throw new AgentFailure(AgentError.Gone);
-    audit.postId = receipt.postId;
-    audit.proposalId = receipt.proposalId;
-    return {
-      status: 200,
-      body: {
-        id: receipt.proposalId,
-        postId: receipt.postId,
-        reviewPath: `/admin/posts/${receipt.postId}/reviews/${receipt.proposalId}`,
-        replayed: true,
-      },
-    };
+    return proposalResult(
+      { id: receipt.proposalId, postId: receipt.postId },
+      true,
+      audit,
+    );
   }
-  const created = await submitProposalService(
-    { id: AGENT_PRINCIPAL.id, label: AGENT_PRINCIPAL.label },
-    parsed.data,
-    tx,
-  );
+  const created = await submitProposalService(AGENT_PRINCIPAL, parsed.data, tx);
   if (!created.ok) {
     if (created.code === ActionErrorCode.Conflict)
       throw new AgentFailure(AgentError.Conflict);
@@ -139,8 +211,7 @@ async function submit(
       throw new AgentFailure(AgentError.Missing);
     throw new AgentFailure(AgentError.Invalid);
   }
-  audit.postId = created.data.postId;
-  audit.proposalId = created.data.id;
+  const result = proposalResult(created.data, false, audit);
   await insertReceipt(tx, {
     principalId: AGENT_PRINCIPAL.id,
     key,
@@ -148,111 +219,5 @@ async function submit(
     postId: created.data.postId,
     proposalId: created.data.id,
   });
-  return {
-    status: 201,
-    body: {
-      id: created.data.id,
-      postId: created.data.postId,
-      reviewPath: `/admin/posts/${created.data.postId}/reviews/${created.data.id}`,
-      replayed: false,
-    },
-  };
-}
-export async function handleAgentRequest(
-  request: Request,
-  operation: AgentOperation,
-  params?: Promise<{ id: string }>,
-): Promise<Response> {
-  const requestId = randomUUID();
-  const audit: Audit = {};
-  let status = 503;
-  try {
-    const quota =
-      operation === AgentOperation.Submit ? AgentQuota.Submit : AgentQuota.Read;
-    const bearer = await admitAgent(
-      request.headers.get("authorization"),
-      quota,
-    );
-    audit.principalId = AGENT_PRINCIPAL.id;
-    const query = queryParameters(request);
-    let work: (tx: Tx) => Promise<Output>;
-    if (operation === AgentOperation.List) {
-      const parsed = agentListSchema.safeParse(query);
-      if (!parsed.success) throw new AgentFailure(AgentError.Invalid);
-      work = async (tx) => {
-        const rows = await listSources(
-          tx,
-          parsed.data.limit,
-          parsed.data.after,
-        );
-        const items = rows.slice(0, parsed.data.limit);
-        return {
-          status: 200,
-          body: {
-            items,
-            nextCursor:
-              rows.length > parsed.data.limit ? items.at(-1)!.id : null,
-          },
-        };
-      };
-    } else {
-      if (Object.keys(query).length > 0)
-        throw new AgentFailure(AgentError.Invalid);
-      if (operation === AgentOperation.Read) {
-        const id = agentIdSchema.safeParse((await params)?.id);
-        if (!id.success) throw new AgentFailure(AgentError.Invalid);
-        work = (tx) => readSource(tx, id.data, audit);
-      } else if (operation === AgentOperation.Submit) {
-        const key = agentIdSchema.safeParse(
-          request.headers.get("idempotency-key"),
-        );
-        if (!key.success) throw new AgentFailure(AgentError.Invalid);
-        const input: unknown = await request.json().catch(() => {
-          throw new AgentFailure(AgentError.Invalid);
-        });
-        work = (tx) => submit(tx, input, key.data, audit);
-      } else throw new AgentFailure(AgentError.Method);
-    }
-    // Build the bounded response before commit: serialization/size failures
-    // cannot commit a proposal while returning a failed request.
-    const result = await withAuthorizedAgent(bearer, async (tx) =>
-      response(await work(tx), requestId),
-    );
-    status = result.status;
-    return result;
-  } catch (error) {
-    const failure =
-      error instanceof AgentFailure
-        ? error
-        : new AgentFailure(AgentError.Unavailable);
-    status = failure.status;
-    return response(
-      {
-        status,
-        body: { error: failure.code, message: failure.message, requestId },
-      },
-      requestId,
-      {
-        ...(status === 401 ? { "WWW-Authenticate": "Bearer" } : {}),
-        ...(failure.retryAfter
-          ? { "Retry-After": String(failure.retryAfter) }
-          : {}),
-      },
-    );
-  } finally {
-    auditRequest(requestId, operation, status, audit);
-  }
-}
-export function unsupportedAgentMethod(allow: string): Response {
-  const requestId = randomUUID();
-  const failure = new AgentFailure(AgentError.Method);
-  auditRequest(requestId, AgentOperation.Unsupported, failure.status, {});
-  return response(
-    {
-      status: failure.status,
-      body: { error: failure.code, message: failure.message, requestId },
-    },
-    requestId,
-    { Allow: allow },
-  );
+  return result;
 }
