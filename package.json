@@ -20,7 +20,8 @@
     "db:promote-admin": "tsx scripts/promote-admin.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepare": "husky"
+    "prepare": "husky",
+    "agent:credentials": "tsx scripts/agent-credentials.ts"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx,mjs,cjs}": [

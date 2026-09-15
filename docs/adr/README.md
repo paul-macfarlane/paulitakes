@@ -38,3 +38,4 @@ Create one with `/adr <title>` or `$adr <title>` ([shared workflow](../harness/w
 | [0028](0028-viewer-local-dates.md)                                   | Viewer-local dates via client island; same-day Updated hidden | Accepted |
 | [0029](0029-shared-agent-harness.md)                                 | Shared agent harness with host adapters                       | Accepted |
 | [0030](0030-ai-review-and-safe-editor-versions.md)                   | AI review and safe editor versions                            | Accepted |
+| [0031](0031-scoped-agent-api-and-retry-receipts.md)                  | Scoped agent API and retry receipts                           | Accepted |

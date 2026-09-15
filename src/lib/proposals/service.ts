@@ -50,7 +50,7 @@ const principalSchema = z
   })
   .strict();
 // AIR-5's isolated auth boundary supplies this principal; never take it from
-// proposal payloads. No HTTP route or human creation action exposes this yet.
+// proposal payloads. Human creation actions remain unavailable.
 export type ProposalAgent = z.infer<typeof principalSchema>;
 
 export function snapshotsEqual(
@@ -87,6 +87,7 @@ function failure(operation: string, error: unknown): ActionResult<never> {
 export async function submitProposalService(
   principal: ProposalAgent,
   input: unknown,
+  transaction?: Tx,
 ): Promise<ActionResult<ProposalRow>> {
   const actor = principalSchema.safeParse(principal);
   const parsed = submitProposalSchema.safeParse(input);
@@ -153,9 +154,13 @@ export async function submitProposalService(
             }),
           };
         },
+        transaction,
       )) ?? NOT_FOUND
     );
   } catch (error) {
+    // The agent receipt and proposal must roll back together, including a
+    // supersession preceding an insertion failure.
+    if (transaction) throw error;
     return failure("submitProposal", error);
   }
 }
