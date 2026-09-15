@@ -2,9 +2,20 @@
 
 AIR-6 adds a local STDIO MCP adapter over the [agent REST API](agent-api.md). It has four tools: `load_editor_brief`, `list_drafts`, `read_draft`, and `submit_proposal`. It has no database connection, human session, apply, or publish tool. The existing single `AGENT_API_TOKEN` is its only API credential.
 
+## Where it runs
+
+Codex starts the adapter as a local process on your computer. Codex and the adapter communicate through standard input/output (STDIO), without opening an HTTP port. The adapter sends authenticated HTTPS requests to the existing Paulitakes REST API.
+
+```text
+Your computer                         Hosted Paulitakes app
+Codex → local MCP adapter ──HTTPS──→ agent REST API
+```
+
+It is technically an MCP server because it provides tools to Codex, but it is not hosted by the website. The hosted app gains no MCP endpoint. This implements the agreed local adapter approach; it does not introduce a remote MCP service or OAuth setup.
+
 ## Setup
 
-1. Use Node 22+ and run `pnpm install` in this checkout. Keep the checkout at the deployed API version.
+1. Use the current Node.js LTS release and run `pnpm install` in this checkout. Keep the checkout at the deployed API version.
 2. Install the real **paulitakes-editor** skill locally. On Paul's current machine it is `/Users/paulmacfarlane/.codex/skills/paulitakes-editor/SKILL.md`. A skill stored only in ChatGPT is not automatically available to this process. Copy/install the maintained skill locally if needed; do not use the synthetic e2e fixture for real reviews.
 3. Provision `AGENT_API_TOKEN` on the site and in the environment of the Codex process using the same value, as described in the API runbook. Do this out of band; do not paste it into a chat, source file, command argument or committed configuration. The adapter does not load `.env` files or the application's database/OAuth configuration.
 4. Add this server to your local Codex configuration, replacing all example paths and the site origin. An absolute Node executable path is useful when a desktop app has a different PATH from your shell.
