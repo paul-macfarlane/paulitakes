@@ -2,7 +2,7 @@ import "server-only";
 import { and, asc, eq, gt, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
-  agentCredentials,
+  agentApiState,
   agentReceipts,
   categories,
   posts,
@@ -10,43 +10,46 @@ import {
 } from "@/db/schema";
 import { PUBLIC_STATUSES } from "@/lib/posts/status";
 import type { Tx } from "@/lib/posts/data";
-import { AgentScope } from "./contract";
+import { AgentQuota, AGENT_PRINCIPAL } from "./contract";
 
-export type Credential = typeof agentCredentials.$inferSelect;
 export function agentTransaction<T>(work: (tx: Tx) => Promise<T>): Promise<T> {
   return db.transaction(work);
 }
-export async function lockCredential(tx: Tx, id: string) {
+export async function lockAgentState(tx: Tx) {
+  await tx
+    .insert(agentApiState)
+    .values({ id: AGENT_PRINCIPAL.id })
+    .onConflictDoNothing();
   const [row] = await tx
     .select()
-    .from(agentCredentials)
-    .where(eq(agentCredentials.id, id))
+    .from(agentApiState)
+    .where(eq(agentApiState.id, AGENT_PRINCIPAL.id))
     .for("update");
-  return row;
+  return row!;
 }
 export async function writeQuota(
   tx: Tx,
   id: string,
-  scope: AgentScope,
+  quota: AgentQuota,
   window: Date,
   count: number,
 ) {
   await tx
-    .update(agentCredentials)
+    .update(agentApiState)
     .set(
-      scope === AgentScope.Read
+      quota === AgentQuota.Read
         ? { readWindow: window, readCount: count }
         : { submitWindow: window, submitCount: count },
     )
-    .where(eq(agentCredentials.id, id));
+    .where(eq(agentApiState.id, id));
 }
-export async function findReceipt(tx: Tx, credentialId: string, key: string) {
+export async function findReceipt(tx: Tx, principalId: string, key: string) {
   const [row] = await tx
     .select()
     .from(agentReceipts)
     .where(
       and(
-        eq(agentReceipts.credentialId, credentialId),
+        eq(agentReceipts.principalId, principalId),
         eq(agentReceipts.key, key),
       ),
     );

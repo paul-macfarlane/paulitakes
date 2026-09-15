@@ -1,30 +1,27 @@
 import { Pool } from "pg";
-import {
-  createAgentCredential,
-  AgentScope,
-} from "../../src/lib/agent/contract";
 
-// Ephemeral synthetic credentials; no real agent token is read or printed.
-export async function createTestAgent() {
-  const credential = createAgentCredential();
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
-  await pool.query(
-    "insert into agent_credentials (id,label,token_hash,scopes,expires_at) values ($1,$2,$3,$4,$5)",
-    [
-      credential.id,
-      "E2E Codex",
-      credential.tokenHash,
-      JSON.stringify([AgentScope.Read, AgentScope.Submit]),
-      new Date(Date.now() + 86400000),
-    ],
-  );
+// Supply a synthetic token to BOTH the local app and Playwright process.
+// This helper never provisions credentials or displays the configured value.
+export async function createTestAgent(postId: string) {
+  const token = process.env.AGENT_API_TOKEN;
+  if (!token)
+    throw new Error(
+      "Agent e2e requires a synthetic AGENT_API_TOKEN on the local app and test process.",
+    );
   return {
-    token: credential.token,
+    token,
     async cleanup() {
-      await pool.query("delete from agent_credentials where id=$1", [
-        credential.id,
-      ]);
-      await pool.end();
+      const pool = new Pool({
+        connectionString: process.env.DATABASE_URL,
+        max: 1,
+      });
+      try {
+        await pool.query("delete from agent_receipts where post_id=$1", [
+          postId,
+        ]);
+      } finally {
+        await pool.end();
+      }
     },
   };
 }

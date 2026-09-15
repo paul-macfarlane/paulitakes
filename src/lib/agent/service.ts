@@ -17,20 +17,20 @@ import {
   insertReceipt,
   listSources,
   reviewCategories,
-  type Credential,
 } from "./data";
 import {
   AGENT_RESPONSE_LIMIT,
   AgentError,
   AgentOperation,
-  AgentScope,
+  AgentQuota,
+  AGENT_PRINCIPAL,
   agentIdSchema,
   agentListSchema,
   requestDigest,
 } from "./contract";
 import { AgentFailure } from "./errors";
 
-type Audit = { credentialId?: string; postId?: string; proposalId?: string };
+type Audit = { principalId?: string; postId?: string; proposalId?: string };
 type Output = { status: number; body: unknown };
 function queryParameters(request: Request) {
   const params = new URL(request.url).searchParams;
@@ -104,7 +104,6 @@ async function readSource(tx: Tx, id: string, audit: Audit): Promise<Output> {
 }
 async function submit(
   tx: Tx,
-  credential: Credential,
   input: unknown,
   key: string,
   audit: Audit,
@@ -112,7 +111,7 @@ async function submit(
   const parsed = submitProposalSchema.safeParse(input);
   if (!parsed.success) throw new AgentFailure(AgentError.Invalid);
   const hash = requestDigest(parsed.data);
-  const receipt = await findReceipt(tx, credential.id, key);
+  const receipt = await findReceipt(tx, AGENT_PRINCIPAL.id, key);
   if (receipt) {
     if (receipt.requestHash !== hash)
       throw new AgentFailure(AgentError.Conflict);
@@ -130,7 +129,7 @@ async function submit(
     };
   }
   const created = await submitProposalService(
-    { id: credential.id, label: credential.label },
+    { id: AGENT_PRINCIPAL.id, label: AGENT_PRINCIPAL.label },
     parsed.data,
     tx,
   );
@@ -144,7 +143,7 @@ async function submit(
   audit.postId = created.data.postId;
   audit.proposalId = created.data.id;
   await insertReceipt(tx, {
-    credentialId: credential.id,
+    principalId: AGENT_PRINCIPAL.id,
     key,
     requestHash: hash,
     postId: created.data.postId,
@@ -169,15 +168,15 @@ export async function handleAgentRequest(
   const audit: Audit = {};
   let status = 503;
   try {
-    const scope =
-      operation === AgentOperation.Submit ? AgentScope.Submit : AgentScope.Read;
+    const quota =
+      operation === AgentOperation.Submit ? AgentQuota.Submit : AgentQuota.Read;
     const bearer = await admitAgent(
       request.headers.get("authorization"),
-      scope,
+      quota,
     );
-    audit.credentialId = bearer.id;
+    audit.principalId = AGENT_PRINCIPAL.id;
     const query = queryParameters(request);
-    let work: (tx: Tx, credential: Credential) => Promise<Output>;
+    let work: (tx: Tx) => Promise<Output>;
     if (operation === AgentOperation.List) {
       const parsed = agentListSchema.safeParse(query);
       if (!parsed.success) throw new AgentFailure(AgentError.Invalid);
@@ -210,16 +209,13 @@ export async function handleAgentRequest(
         );
         if (!key.success) throw new AgentFailure(AgentError.Invalid);
         const input = await readAgentJson(request);
-        work = (tx, credential) =>
-          submit(tx, credential, input, key.data, audit);
+        work = (tx) => submit(tx, input, key.data, audit);
       } else throw new AgentFailure(AgentError.Method);
     }
     // Build the bounded response before commit: serialization/size failures
     // cannot commit a proposal while returning a failed request.
-    const result = await withAuthorizedAgent(
-      bearer,
-      scope,
-      async (tx, credential) => response(await work(tx, credential), requestId),
+    const result = await withAuthorizedAgent(bearer, async (tx) =>
+      response(await work(tx), requestId),
     );
     status = result.status;
     return result;

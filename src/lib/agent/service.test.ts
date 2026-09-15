@@ -1,7 +1,8 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { eq, inArray } from "drizzle-orm";
+import { randomBytes } from "node:crypto";
+import { eq } from "drizzle-orm";
 import {
-  agentCredentials,
+  agentApiState,
   agentReceipts,
   editProposals,
   posts,
@@ -13,13 +14,27 @@ import {
   type StaffFixtureIds,
 } from "@/test/helpers";
 import {
-  AgentScope,
+  AgentQuota,
   AGENT_READ_LIMIT,
   AGENT_SUBMIT_LIMIT,
-  createAgentCredential,
-  type AgentScope as Scope,
+  AGENT_PRINCIPAL,
 } from "./contract";
 
+// The dev database is shared. Keep fixtures away from the real API's stable
+// principal so tests never reset its counters or erase its retry receipts.
+vi.mock("./contract", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./contract")>();
+  return {
+    ...actual,
+    AGENT_PRINCIPAL: { ...actual.AGENT_PRINCIPAL, id: crypto.randomUUID() },
+  };
+});
+const config = vi.hoisted(() => ({
+  AGENT_API_TOKEN: "",
+  BETTER_AUTH_SECRET: "s".repeat(64),
+  CRON_SECRET: "c".repeat(64),
+}));
+vi.mock("@/lib/shared/env", () => ({ env: config }));
 const { pool, testDb } = await vi.hoisted(async () =>
   (await import("@/test/helpers")).createTestDb(),
 );
@@ -42,32 +57,32 @@ const { runId } = registerPostSuiteLifecycle({
     ids = value;
   },
 });
-const credentialIds: string[] = [];
 const audit = vi.spyOn(console, "info").mockImplementation(() => {});
-beforeEach(() => {
+beforeEach(async () => {
   audit.mockClear();
   vi.mocked(revalidateTag).mockClear();
+  await testDb
+    .delete(agentReceipts)
+    .where(eq(agentReceipts.principalId, AGENT_PRINCIPAL.id));
+  await testDb
+    .delete(agentApiState)
+    .where(eq(agentApiState.id, AGENT_PRINCIPAL.id));
+  await testDb.insert(agentApiState).values({ id: AGENT_PRINCIPAL.id });
+  config.AGENT_API_TOKEN = "";
 });
 afterAll(async () => {
-  if (credentialIds.length)
-    await testDb
-      .delete(agentCredentials)
-      .where(inArray(agentCredentials.id, credentialIds));
+  await testDb
+    .delete(agentReceipts)
+    .where(eq(agentReceipts.principalId, AGENT_PRINCIPAL.id));
+  await testDb
+    .delete(agentApiState)
+    .where(eq(agentApiState.id, AGENT_PRINCIPAL.id));
   audit.mockRestore();
 });
-async function credential(
-  scopes: Scope[] = [AgentScope.Read, AgentScope.Submit],
-) {
-  const generated = createAgentCredential();
-  credentialIds.push(generated.id);
-  await testDb.insert(agentCredentials).values({
-    id: generated.id,
-    tokenHash: generated.tokenHash,
-    label: "Synthetic Codex",
-    scopes,
-    expiresAt: new Date(Date.now() + 86400000),
-  });
-  return generated;
+async function configuredAgent() {
+  const token = randomBytes(32).toString("base64url");
+  config.AGENT_API_TOKEN = token;
+  return { ...AGENT_PRINCIPAL, token };
 }
 async function source(
   suffix: string,
@@ -130,41 +145,57 @@ function assertPrivate(response: Response) {
   expect(response.headers.get("x-request-id")).toMatch(/^[a-f0-9-]{36}$/);
 }
 
-describe("scoped agent API", () => {
-  it("denies cookies, unknown tokens, wrong scopes, expiry and revocation without data leakage", async () => {
+describe("configured agent API", () => {
+  it("denies cookies, unknown tokens, absent/malformed config and reused auth/job secrets", async () => {
     const item = await source("denials");
-    const auth = await credential();
-    const readonly = await credential([AgentScope.Read]);
-    const submitonly = await credential([AgentScope.Submit]);
+    const auth = await configuredAgent();
     const attempts = [
       await list(request()),
-      await list(request(createAgentCredential().token)),
-      await list(request(submitonly.token)),
-      await submit(request(readonly.token, "/edit-proposals", {})),
+      await list(request("x".repeat(64))),
     ];
-    expect(attempts.map((r) => r.status)).toEqual([401, 401, 403, 403]);
-    await testDb
-      .update(agentCredentials)
-      .set({ revokedAt: new Date() })
-      .where(eq(agentCredentials.id, auth.id));
-    attempts.push(await getSource(auth.token, item.id));
-    await testDb
-      .update(agentCredentials)
-      .set({
-        revokedAt: null,
-        createdAt: new Date(Date.now() - 120000),
-        expiresAt: new Date(Date.now() - 60000),
-      })
-      .where(eq(agentCredentials.id, auth.id));
-    attempts.push(await getSource(auth.token, item.id));
+    for (const value of [
+      "",
+      "short",
+      config.BETTER_AUTH_SECRET,
+      config.CRON_SECRET,
+    ]) {
+      config.AGENT_API_TOKEN = value;
+      attempts.push(await getSource(value || auth.token, item.id));
+    }
     for (const response of attempts) {
+      expect(response.status).toBe(401);
       assertPrivate(response);
       expect(await response.text()).not.toContain("Private saved fan voice.");
     }
-    expect(attempts.slice(-2).map((r) => r.status)).toEqual([401, 401]);
+  });
+  it("initializes only quota state on first authenticated use without provisioning", async () => {
+    await testDb
+      .delete(agentApiState)
+      .where(eq(agentApiState.id, AGENT_PRINCIPAL.id));
+    expect((await list(request())).status).toBe(401);
+    expect(
+      await testDb
+        .select()
+        .from(agentApiState)
+        .where(eq(agentApiState.id, AGENT_PRINCIPAL.id)),
+    ).toHaveLength(0);
+    const auth = await configuredAgent();
+    const responses = await Promise.all([
+      list(request(auth.token)),
+      list(request(auth.token)),
+    ]);
+    expect(responses.map((response) => response.status)).toEqual([200, 200]);
+    const [state] = await testDb
+      .select()
+      .from(agentApiState)
+      .where(eq(agentApiState.id, AGENT_PRINCIPAL.id));
+    expect(Object.keys(state!).sort()).toEqual(
+      ["id", "readCount", "readWindow", "submitCount", "submitWindow"].sort(),
+    );
+    expect(state!.readCount).toBe(2);
   });
   it("returns only review fields across authors, prefers the staged snapshot and does not create one on read", async () => {
-    const auth = await credential();
+    const auth = await configuredAgent();
     const draft = await source("other-author", false, ids.adminId);
     const live = await source("public-read", true);
     const before = await loadPost(live.id);
@@ -218,7 +249,7 @@ describe("scoped agent API", () => {
     expect(revalidateTag).not.toHaveBeenCalled();
   });
   it("bounds list pages and validates queries and IDs after auth", async () => {
-    const auth = await credential();
+    const auth = await configuredAgent();
     await source("page-a");
     await source("page-b");
     const firstResponse = await list(request(auth.token, "/drafts?limit=1"));
@@ -257,7 +288,7 @@ describe("scoped agent API", () => {
   it.each([false, true])(
     "creates one immutable proposal and retry receipt without modifying the source (public=%s)",
     async (published) => {
-      const auth = await credential();
+      const auth = await configuredAgent();
       const item = await source(`submit-${published}`, published);
       const body = await payload(auth.token, item.id);
       const before = await loadPost(item.id);
@@ -301,7 +332,7 @@ describe("scoped agent API", () => {
       expect(rows).toHaveLength(1);
       expect(rows[0]).toMatchObject({
         agentId: auth.id,
-        agentLabel: "Synthetic Codex",
+        agentLabel: AGENT_PRINCIPAL.label,
         status: "open",
         sourceIsPublic: published,
       });
@@ -309,7 +340,7 @@ describe("scoped agent API", () => {
     },
   );
   it("rejects forbidden proposal fields, changed keys, stale versions and implicit replacement", async () => {
-    const auth = await credential();
+    const auth = await configuredAgent();
     const item = await source("conflicts");
     const body = await payload(auth.token, item.id);
     const key = crypto.randomUUID();
@@ -368,7 +399,12 @@ describe("scoped agent API", () => {
         .where(eq(editProposals.id, created.id))
     )[0]!;
     expect(stored.status).toBe("superseded");
-    const other = await credential();
+    // Advance the quota window; this case isolates the stale-source guard.
+    await testDb
+      .update(agentApiState)
+      .set({ submitWindow: new Date(Date.now() - 61000) })
+      .where(eq(agentApiState.id, auth.id));
+    const other = await configuredAgent();
     await testDb
       .update(posts)
       .set({ title: "Human changed it", editVersion: crypto.randomUUID() })
@@ -385,7 +421,7 @@ describe("scoped agent API", () => {
     ).toBe(409);
   });
   it("serializes simultaneous retries and retains a tombstone after post deletion", async () => {
-    const auth = await credential();
+    const auth = await configuredAgent();
     const item = await source("retries");
     const body = await payload(auth.token, item.id);
     const key = crypto.randomUUID();
@@ -400,17 +436,17 @@ describe("scoped agent API", () => {
     ).toBe(410);
   });
   it("enforces durable independent quotas, counts invalid writes and emits retry-after", async () => {
-    const auth = await credential();
+    const auth = await configuredAgent();
     const now = new Date();
     await testDb
-      .update(agentCredentials)
+      .update(agentApiState)
       .set({
         readWindow: now,
         readCount: AGENT_READ_LIMIT - 1,
         submitWindow: now,
         submitCount: AGENT_SUBMIT_LIMIT - 1,
       })
-      .where(eq(agentCredentials.id, auth.id));
+      .where(eq(agentApiState.id, auth.id));
     const reads = await Promise.all([
       list(request(auth.token)),
       list(request(auth.token)),
@@ -419,29 +455,27 @@ describe("scoped agent API", () => {
     expect(
       (await submit(request(auth.token, "/edit-proposals", {}))).status,
     ).toBe(400);
-    const limited = await submit(request(auth.token, "/edit-proposals", {}));
+    const rotated = await configuredAgent();
+    const limited = await submit(request(rotated.token, "/edit-proposals", {}));
     expect(limited.status).toBe(429);
     expect(Number(limited.headers.get("retry-after"))).toBeGreaterThan(0);
     assertPrivate(limited);
     await testDb
-      .update(agentCredentials)
+      .update(agentApiState)
       .set({ readWindow: new Date(Date.now() - 61000) })
-      .where(eq(agentCredentials.id, auth.id));
-    expect((await list(request(auth.token))).status).toBe(200);
+      .where(eq(agentApiState.id, auth.id));
+    expect((await list(request(rotated.token))).status).toBe(200);
   });
-  it("rechecks revocation and expiry after admission and rolls back receipt failures", async () => {
-    const auth = await credential();
-    const bearer = await admitAgent(`Bearer ${auth.token}`, AgentScope.Read);
-    await testDb
-      .update(agentCredentials)
-      .set({ revokedAt: new Date() })
-      .where(eq(agentCredentials.id, auth.id));
+  it("rejects the old token after configuration changes and rolls back receipt failures", async () => {
+    const auth = await configuredAgent();
+    const bearer = await admitAgent(`Bearer ${auth.token}`, AgentQuota.Read);
+    config.AGENT_API_TOKEN = "";
     const work = vi.fn();
-    await expect(
-      withAuthorizedAgent(bearer, AgentScope.Read, work),
-    ).rejects.toMatchObject({ status: 401 });
+    await expect(withAuthorizedAgent(bearer, work)).rejects.toMatchObject({
+      status: 401,
+    });
     expect(work).not.toHaveBeenCalled();
-    const writer = await credential();
+    const writer = await configuredAgent();
     const item = await source("rollback");
     const body = await payload(writer.token, item.id);
     const spy = vi
@@ -462,12 +496,12 @@ describe("scoped agent API", () => {
       await testDb
         .select()
         .from(agentReceipts)
-        .where(eq(agentReceipts.credentialId, writer.id)),
+        .where(eq(agentReceipts.principalId, writer.id)),
     ).toHaveLength(0);
     expect(JSON.stringify(audit.mock.calls)).not.toContain("SENSITIVE");
   });
   it("logs only fixed metadata, rejects unsupported methods, and sanitizes failures", async () => {
-    const auth = await credential();
+    const auth = await configuredAgent();
     const response = await list(
       new Request(
         "http://localhost/api/agent/v1/drafts?secret=private-marker",
@@ -485,7 +519,7 @@ describe("scoped agent API", () => {
       event: "agent_api",
       operation: "listDrafts",
       status: 400,
-      credentialId: auth.id,
+      principalId: auth.id,
     });
     for (const key of Object.keys(events[0]))
       expect([
@@ -494,7 +528,7 @@ describe("scoped agent API", () => {
         "requestId",
         "operation",
         "status",
-        "credentialId",
+        "principalId",
         "postId",
         "proposalId",
       ]).toContain(key);
@@ -506,7 +540,7 @@ describe("scoped agent API", () => {
       assertPrivate(denied);
     }
     const spy = vi
-      .spyOn(agentData, "lockCredential")
+      .spyOn(agentData, "lockAgentState")
       .mockRejectedValueOnce(new Error("SECRET DATABASE ERROR"));
     const unavailable = await list(request(auth.token));
     spy.mockRestore();
@@ -516,20 +550,19 @@ describe("scoped agent API", () => {
   });
 });
 
-it("rolls back a supersession if the credential expires before commit", async () => {
-  const auth = await credential();
-  const item = await source("expiry-rollback");
+it("rolls back a supersession if receipt persistence fails", async () => {
+  const auth = await configuredAgent();
+  const item = await source("receipt-rollback");
   const body = await payload(auth.token, item.id);
   const original = await (
     await submit(request(auth.token, "/edit-proposals", body))
   ).json();
   const realInsert = agentData.insertReceipt;
-  vi.useFakeTimers({ toFake: ["Date"] });
   const spy = vi
     .spyOn(agentData, "insertReceipt")
     .mockImplementationOnce(async (...args) => {
       await realInsert(...args);
-      vi.setSystemTime(new Date(Date.now() + 2 * 86400000));
+      throw new Error("Synthetic receipt failure");
     });
   try {
     const response = await submit(
@@ -538,10 +571,9 @@ it("rolls back a supersession if the credential expires before commit", async ()
         supersedesProposalId: original.id,
       }),
     );
-    expect(response.status).toBe(401);
+    expect(response.status).toBe(503);
   } finally {
     spy.mockRestore();
-    vi.useRealTimers();
   }
   const proposals = await testDb
     .select()
@@ -553,12 +585,12 @@ it("rolls back a supersession if the credential expires before commit", async ()
     await testDb
       .select()
       .from(agentReceipts)
-      .where(eq(agentReceipts.credentialId, auth.id)),
+      .where(eq(agentReceipts.principalId, auth.id)),
   ).toHaveLength(1);
 });
 
-it("replays the original receipt after human edits and closure, and bounds large stored sources", async () => {
-  const auth = await credential();
+it("preserves receipts across token rotation, human edits and closure, and bounds large stored sources", async () => {
+  const auth = await configuredAgent();
   const item = await source("closed-replay");
   const body = await payload(auth.token, item.id);
   const key = crypto.randomUUID();
@@ -573,8 +605,10 @@ it("replays the original receipt after human edits and closure, and bounds large
     .update(posts)
     .set({ bodyMd: "Changed by a human." })
     .where(eq(posts.id, item.id));
+  const rotated = await configuredAgent();
+  expect((await list(request(auth.token))).status).toBe(401);
   const replay = await submit(
-    request(auth.token, "/edit-proposals", body, key),
+    request(rotated.token, "/edit-proposals", body, key),
   );
   expect(replay.status).toBe(200);
   expect(await replay.json()).toMatchObject({ id: created.id, replayed: true });
@@ -582,7 +616,7 @@ it("replays the original receipt after human edits and closure, and bounds large
     .update(posts)
     .set({ bodyMd: "x".repeat(1024 * 1024 + 1) })
     .where(eq(posts.id, item.id));
-  const response = await getSource(auth.token, item.id);
+  const response = await getSource(rotated.token, item.id);
   expect(response.status).toBe(503);
   assertPrivate(response);
   expect((await response.text()).length).toBeLessThan(250);

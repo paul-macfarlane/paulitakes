@@ -1,16 +1,13 @@
-import {
-  createHash,
-  randomBytes,
-  randomUUID,
-  timingSafeEqual,
-} from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 
-export const AgentScope = {
-  Read: "content:read",
-  Submit: "proposals:create",
+// Stable attribution/receipt namespace; token rotation must not reset retries.
+export const AGENT_PRINCIPAL = {
+  id: "4ed8a71b-df62-4d7f-a84e-385bbca5ba76",
+  label: "Configured editorial agent",
 } as const;
-export type AgentScope = (typeof AgentScope)[keyof typeof AgentScope];
+export const AgentQuota = { Read: "read", Submit: "submit" } as const;
+export type AgentQuota = (typeof AgentQuota)[keyof typeof AgentQuota];
 export const AgentOperation = {
   List: "listDrafts",
   Read: "readDraft",
@@ -21,7 +18,6 @@ export type AgentOperation =
   (typeof AgentOperation)[keyof typeof AgentOperation];
 export const AgentError = {
   Unauthorized: "unauthorized",
-  Forbidden: "forbidden",
   Invalid: "invalid_request",
   Conflict: "conflict",
   Missing: "not_found",
@@ -40,22 +36,6 @@ export const AGENT_BODY_TIMEOUT_MS = 10000;
 export const AGENT_WINDOW_MS = 60000;
 export const AGENT_READ_LIMIT = 60;
 export const AGENT_SUBMIT_LIMIT = 6;
-export const credentialIssueSchema = z
-  .object({
-    label: z
-      .string()
-      .trim()
-      .min(1)
-      .max(100)
-      .regex(/^[^\p{C}]+$/u),
-    days: z.coerce.number().int().min(1).max(365).default(90),
-    scopes: z
-      .array(z.enum(AgentScope))
-      .min(1)
-      .max(2)
-      .refine((values) => new Set(values).size === values.length),
-  })
-  .strict();
 export const agentListSchema = z
   .object({
     limit: z.coerce.number().int().min(1).max(50).default(20),
@@ -66,17 +46,21 @@ export const agentIdSchema = z.uuid();
 export function tokenDigest(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
-export function createAgentCredential() {
-  const id = randomUUID();
-  const token = `pt_agent_${id}.${randomBytes(32).toString("base64url")}`;
-  return { id, token, tokenHash: tokenDigest(token) };
+export function parseAgentBearer(header: string | null): string | null {
+  return /^Bearer ([A-Za-z0-9_-]{32,256})$/i.exec(header ?? "")?.[1] ?? null;
 }
-export function parseAgentBearer(header: string | null) {
-  const match = /^Bearer (pt_agent_([a-f0-9-]{36})\.[A-Za-z0-9_-]{43})$/i.exec(
-    header ?? "",
-  );
-  if (!match || !agentIdSchema.safeParse(match[2]).success) return null;
-  return { id: match[2]!.toLowerCase(), tokenHash: tokenDigest(match[1]!) };
+export function configuredTokenMatches(
+  provided: string,
+  expected: string | undefined,
+  reserved: (string | undefined)[],
+): boolean {
+  if (
+    !expected ||
+    !/^[A-Za-z0-9_-]{32,256}$/.test(expected) ||
+    reserved.includes(expected)
+  )
+    return false;
+  return digestMatches(tokenDigest(provided), tokenDigest(expected));
 }
 export function digestMatches(provided: string, stored: string): boolean {
   // Malformed persisted hashes fail closed without variable-size comparisons.

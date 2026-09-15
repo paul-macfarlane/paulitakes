@@ -478,20 +478,11 @@ export const editProposals = pgTable(
   ],
 );
 
-// Credentials never contain a reusable token. Quota state is one bounded row
-// per credential; revocation is checked again under this row's lock at use.
-export const agentCredentials = pgTable(
-  "agent_credentials",
+// One stable API principal holds durable quota state; no credentials are stored.
+export const agentApiState = pgTable(
+  "agent_api_state",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
-    label: text("label").notNull(),
-    tokenHash: text("token_hash").notNull(),
-    scopes: jsonb("scopes").$type<string[]>().notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    id: uuid("id").primaryKey(),
     readWindow: timestamp("read_window", { withTimezone: true }),
     readCount: integer("read_count").notNull().default(0),
     submitWindow: timestamp("submit_window", { withTimezone: true }),
@@ -499,19 +490,7 @@ export const agentCredentials = pgTable(
   },
   (table) => [
     check(
-      "agent_credentials_hash_check",
-      sql`${table.tokenHash} ~ '^[a-f0-9]{64}$'`,
-    ),
-    check(
-      "agent_credentials_expiry_check",
-      sql`${table.expiresAt} > ${table.createdAt}`,
-    ),
-    check(
-      "agent_credentials_scopes_check",
-      sql`jsonb_typeof(${table.scopes}) = 'array' AND jsonb_array_length(${table.scopes}) > 0 AND ${table.scopes} <@ '["content:read", "proposals:create"]'::jsonb`,
-    ),
-    check(
-      "agent_credentials_counts_check",
+      "agent_api_state_counts_check",
       sql`${table.readCount} >= 0 AND ${table.submitCount} >= 0`,
     ),
   ],
@@ -522,9 +501,7 @@ export const agentCredentials = pgTable(
 export const agentReceipts = pgTable(
   "agent_receipts",
   {
-    credentialId: uuid("credential_id")
-      .notNull()
-      .references(() => agentCredentials.id, { onDelete: "cascade" }),
+    principalId: uuid("principal_id").notNull(),
     key: uuid("key").notNull(),
     requestHash: text("request_hash").notNull(),
     postId: uuid("post_id").notNull(),
@@ -536,7 +513,7 @@ export const agentReceipts = pgTable(
       .defaultNow(),
   },
   (table) => [
-    primaryKey({ columns: [table.credentialId, table.key] }),
+    primaryKey({ columns: [table.principalId, table.key] }),
     index("agent_receipts_proposal_idx").on(table.proposalId),
   ],
 );
