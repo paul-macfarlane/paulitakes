@@ -1,9 +1,13 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { Client } from "@modelcontextprotocol/client";
-import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import { execFile } from "node:child_process";
 import { expect, test } from "@playwright/test";
+import { z } from "zod";
+import {
+  proposalSnapshotSchema,
+  skillAttributionSchema,
+} from "../src/lib/proposals/input";
 import {
   createTestCategory,
   createTestPost,
@@ -17,6 +21,8 @@ test("configured agent submits a review, human applies privately, retries retain
   context,
   baseURL,
 }) => {
+  // This crosses a CLI, several UI navigations, private apply and publication.
+  test.setTimeout(60_000);
   const original =
     "Look, I still believe in these guys. The defense were shaky.";
   const candidate =
@@ -31,27 +37,41 @@ test("configured agent submits a review, human applies privately, retries retain
   });
   const agent = await createTestAgent(post.id);
   const skillPath = resolve("e2e/fixtures/editor-skill.md");
-  const client = new Client({ name: "editor-e2e", version: "1" });
-  const transport = new StdioClientTransport({
-    command: process.execPath,
-    args: ["--import", "tsx", "scripts/agent-mcp.mts"],
-    env: {
-      PAULITAKES_URL: baseURL!,
-      AGENT_API_TOKEN: agent.token,
-      PAULITAKES_EDITOR_SKILL_PATH: skillPath,
-    },
-  });
-  const call = async (name: string, args = {}) => {
-    const result = await client.callTool({ name, arguments: args });
-    expect(result.isError).not.toBe(true);
-    const content = result.content as { type: string; text: string }[];
-    expect(content[0].type).toBe("text");
-    return JSON.parse(content[0].text);
-  };
+  const call = (command: string, input = {}): Promise<unknown> =>
+    new Promise((resolveResult, reject) => {
+      const child = execFile(
+        process.execPath,
+        ["--import", "tsx", "scripts/agent-review.ts", command],
+        {
+          env: {
+            NODE_ENV: "test",
+            PAULITAKES_URL: baseURL!,
+            AGENT_API_TOKEN: agent.token,
+            PAULITAKES_EDITOR_SKILL_PATH: skillPath,
+          },
+          timeout: 40_000,
+        },
+        (error, stdout, stderr) => {
+          if (error)
+            return reject(new Error(stderr || "Review command failed"));
+          try {
+            resolveResult(JSON.parse(stdout));
+          } catch (parseError) {
+            reject(parseError);
+          }
+        },
+      );
+      child.stdin!.end(JSON.stringify(input));
+    });
   await context.addCookies([owner.cookie]);
   try {
-    await client.connect(transport);
-    const loaded = await call("load_editor_brief");
+    const loaded = z
+      .object({
+        brief: z.string(),
+        skill: skillAttributionSchema,
+        idempotencyKey: z.uuid(),
+      })
+      .parse(await call("brief"));
     expect(loaded.brief).toBe(await readFile(skillPath, "utf8"));
     expect(loaded.skill.hash).toBe(
       createHash("sha256").update(loaded.brief).digest("hex"),
@@ -59,7 +79,12 @@ test("configured agent submits a review, human applies privately, retries retain
     const url = `/api/agent/v1/drafts/${post.id}`;
     expect((await page.request.get(url)).status()).toBe(401);
     const headers = { Authorization: `Bearer ${agent.token}` };
-    const source = await call("read_draft", { postId: post.id });
+    const source = z
+      .looseObject({
+        snapshot: proposalSnapshotSchema,
+        sourceVersion: z.uuid(),
+      })
+      .parse(await call("read", { postId: post.id }));
     expect(source.snapshot.bodyMd).toBe(original);
     expect(source).not.toHaveProperty("authorId");
     expect(source).not.toHaveProperty("user");
@@ -67,7 +92,8 @@ test("configured agent submits a review, human applies privately, retries retain
       postId: post.id,
       sourceVersion: source.sourceVersion,
       candidate: { ...source.snapshot, bodyMd: candidate },
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey: loaded.idempotencyKey,
+      skillHash: loaded.skill.hash,
       notes: {
         summary: "Tighten the take; preserve its voice.",
         editorial: [
@@ -96,7 +122,9 @@ test("configured agent submits a review, human applies privately, retries retain
         ],
       },
     };
-    const receipt = await call("submit_proposal", proposal);
+    const receipt = z
+      .object({ id: z.uuid(), reviewPath: z.string(), replayed: z.boolean() })
+      .parse(await call("submit", proposal));
     expect(receipt.replayed).toBe(false);
     await page.goto(`/posts/${post.slug}`);
     await expect(page.locator("article")).toContainText(original);
@@ -126,7 +154,7 @@ test("configured agent submits a review, human applies privately, retries retain
     await expect(page.getByRole("status")).toContainText(
       "Changes saved as pending edits.",
     );
-    expect(await call("submit_proposal", proposal)).toMatchObject({
+    expect(await call("submit", proposal)).toMatchObject({
       id: receipt.id,
       replayed: true,
     });
@@ -141,6 +169,7 @@ test("configured agent submits a review, human applies privately, retries retain
     await expect(page.locator("article")).toContainText(original);
     await expect(page.locator("article")).not.toContainText(candidate);
     await page.goto(`/admin/posts/${post.id}/edit`);
+    await expect(page.getByText("Unpublished changes")).toBeVisible();
     await clickUntil(
       page.getByRole("button", { name: "Publish changes", exact: true }),
       () => expect(page.getByText("Unpublished changes")).toHaveCount(0),
@@ -161,7 +190,6 @@ test("configured agent submits a review, human applies privately, retries retain
       ).status(),
     ).toBe(405);
   } finally {
-    await client.close();
     await agent.cleanup();
     await post.cleanup();
     await category.cleanup();
