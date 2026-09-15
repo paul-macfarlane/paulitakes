@@ -41,3 +41,4 @@ Create one with `/adr <title>` or `$adr <title>` ([shared workflow](../harness/w
 | [0031](0031-scoped-agent-api-and-retry-receipts.md)                  | Scoped agent API and retry receipts                           | Accepted |
 | [0032](0032-single-configured-agent-token.md)                        | Single configured agent token                                 | Accepted |
 | [0033](0033-standard-agent-json-parsing.md)                          | Standard agent JSON parsing                                   | Accepted |
+| [0034](0034-local-editor-mcp.md)                                     | Local editor MCP                                              | Accepted |

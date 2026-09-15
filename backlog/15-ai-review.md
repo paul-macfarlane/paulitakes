@@ -7,6 +7,8 @@ Request-only agent reviews using the Paulitakes Editor skill. AI proposes; human
 - [x] **AIR-3** — Immutable proposal snapshots, metadata/body diffs, structured editorial notes and guarded selective apply; one open AI proposal per post (FR-7.12). _(deps: AIR-2)_
 - [x] **AIR-4** — Mobile-first human review UI with per-change selection, full comparison/preview and separate fact-check/media notes (FR-7.12). _(deps: AIR-3)_
 - [x] **AIR-5** — Scoped, revocable agent API with isolated contract, bounded reads/writes, idempotency, rate limits and sanitized audit (FR-7.13). Reference Picksleagues authentication patterns; never reuse its credentials. _(deps: AIR-3)_
-- [ ] **AIR-6** — Local Codex MCP adapter and explicit Paulitakes Editor skill workflow; end-to-end requested review and human-only apply/publication proof (FR-7.12–7.13). _(deps: AIR-4, AIR-5)_
+- [x] **AIR-6** — Local Codex MCP adapter and explicit Paulitakes Editor skill workflow; end-to-end requested review and human-only apply/publication proof (FR-7.12–7.13). _(deps: AIR-4, AIR-5)_
 
 AI review ships before broader collaboration. No dependency on the full REV history epic; later human proposals reuse these snapshots/diffs and may link historical revision IDs.
+
+AIR-6 setup: [local MCP runbook](../docs/runbooks/agent-mcp.md), [explicit editor workflow](../docs/harness/workflows/agent-review.md), ADR-0034. Live Codex token provisioning and the first real editorial review remain operator steps; automated verification uses synthetic credentials.
