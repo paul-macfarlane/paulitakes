@@ -1,6 +1,6 @@
 # 0032. Single configured agent token
 
-- **Status:** Accepted
+- **Status:** Accepted; custom request-body handling superseded by [0033](0033-standard-agent-json-parsing.md)
 - **Date:** 2026-09-14
 - **Related:** FR-7.13, technical-design.md §3, AIR-5; supersedes credential management in [0031](0031-scoped-agent-api-and-retry-receipts.md)
 

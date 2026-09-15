@@ -22,17 +22,12 @@ export const AgentError = {
   Conflict: "conflict",
   Missing: "not_found",
   Gone: "gone",
-  TooLarge: "too_large",
-  MediaType: "unsupported_media_type",
   RateLimited: "rate_limited",
-  Timeout: "request_timeout",
   Unavailable: "unavailable",
   Method: "method_not_allowed",
 } as const;
 export type AgentError = (typeof AgentError)[keyof typeof AgentError];
-export const AGENT_BODY_LIMIT = 1024 * 1024;
 export const AGENT_RESPONSE_LIMIT = 1024 * 1024;
-export const AGENT_BODY_TIMEOUT_MS = 10000;
 export const AGENT_WINDOW_MS = 60000;
 export const AGENT_READ_LIMIT = 60;
 export const AGENT_SUBMIT_LIMIT = 6;

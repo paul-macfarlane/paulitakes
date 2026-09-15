@@ -13,16 +13,10 @@ const ERRORS: Record<AgentError, { status: number; message: string }> = {
   },
   not_found: { status: 404, message: "Review source not found." },
   gone: { status: 410, message: "The proposal from this request was deleted." },
-  too_large: { status: 413, message: "Request body exceeds the size limit." },
-  unsupported_media_type: {
-    status: 415,
-    message: "Use uncompressed application/json.",
-  },
   rate_limited: {
     status: 429,
     message: "Agent request limit reached. Retry later.",
   },
-  request_timeout: { status: 408, message: "Request body timed out." },
   unavailable: {
     status: 503,
     message: "Agent service temporarily unavailable.",
