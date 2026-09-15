@@ -3,11 +3,7 @@ import { AgentError } from "./contract";
 const ERRORS: Record<AgentError, { status: number; message: string }> = {
   unauthorized: {
     status: 401,
-    message: "Invalid or inactive agent credential.",
-  },
-  forbidden: {
-    status: 403,
-    message: "Agent credential lacks the required scope.",
+    message: "Invalid or unconfigured agent token.",
   },
   invalid_request: { status: 400, message: "Invalid request." },
   conflict: {

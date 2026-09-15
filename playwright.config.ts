@@ -1,4 +1,9 @@
+import { randomBytes } from "node:crypto";
 import { defineConfig, devices } from "@playwright/test";
+
+// Auto-started local servers inherit this synthetic token. When reusing a
+// server, launch it and this runner with the same synthetic AGENT_API_TOKEN.
+process.env.AGENT_API_TOKEN ||= randomBytes(32).toString("hex");
 
 export default defineConfig({
   testDir: "./e2e",

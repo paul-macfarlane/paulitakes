@@ -6,7 +6,7 @@ import {
 } from "./helpers/session";
 import { createTestAgent } from "./helpers/agent";
 
-test("scoped agent submits a review, human applies privately, retries retain the same proposal", async ({
+test("configured agent submits a review, human applies privately, retries retain the same proposal", async ({
   page,
   context,
 }) => {
@@ -18,7 +18,7 @@ test("scoped agent submits a review, human applies privately, retries retain the
     status: "published",
     bodyMd: "My original take.",
   });
-  const agent = await createTestAgent();
+  const agent = await createTestAgent(post.id);
   await context.addCookies([owner.cookie]);
   try {
     const url = `/api/agent/v1/drafts/${post.id}`;

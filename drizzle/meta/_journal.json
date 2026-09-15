@@ -127,6 +127,13 @@
       "when": 1789430931715,
       "tag": "0017_high_tiger_shark",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1789436933020,
+      "tag": "0018_sticky_sister_grimm",
+      "breakpoints": true
     }
   ]
 }

@@ -1,51 +1,42 @@
 import "server-only";
+import { env } from "@/lib/shared/env";
 import type { Tx } from "@/lib/posts/data";
-import {
-  agentTransaction,
-  lockCredential,
-  writeQuota,
-  type Credential,
-} from "./data";
+import { agentTransaction, lockAgentState, writeQuota } from "./data";
 import {
   AGENT_READ_LIMIT,
   AGENT_SUBMIT_LIMIT,
   AGENT_WINDOW_MS,
   AgentError,
-  AgentScope,
-  digestMatches,
+  AgentQuota,
+  configuredTokenMatches,
   parseAgentBearer,
 } from "./contract";
 import { AgentFailure } from "./errors";
 
-type Bearer = NonNullable<ReturnType<typeof parseAgentBearer>>;
-function assertCredential(
-  row: Credential | undefined,
-  bearer: Bearer,
-  scope: AgentScope,
-  now: Date,
-): asserts row is Credential {
+type Bearer = string;
+function assertToken(bearer: Bearer) {
   if (
-    !row ||
-    !digestMatches(bearer.tokenHash, row.tokenHash) ||
-    row.revokedAt ||
-    row.expiresAt <= now
+    !configuredTokenMatches(bearer, env.AGENT_API_TOKEN, [
+      env.BETTER_AUTH_SECRET,
+      env.CRON_SECRET,
+    ])
   )
     throw new AgentFailure(AgentError.Unauthorized);
-  if (!row.scopes.includes(scope)) throw new AgentFailure(AgentError.Forbidden);
 }
 export async function admitAgent(
   header: string | null,
-  scope: AgentScope,
+  quota: AgentQuota,
 ): Promise<Bearer> {
   const bearer = parseAgentBearer(header);
   if (!bearer) throw new AgentFailure(AgentError.Unauthorized);
+  assertToken(bearer);
   // Admission commits quota before parsing a body. Neither slow clients nor
   // invalid requests hold a DB lock or receive free write attempts.
   await agentTransaction(async (tx) => {
-    const row = await lockCredential(tx, bearer.id);
+    const row = await lockAgentState(tx);
     const now = new Date();
-    assertCredential(row, bearer, scope, now);
-    const read = scope === AgentScope.Read;
+    assertToken(bearer);
+    const read = quota === AgentQuota.Read;
     const previous = read ? row.readWindow : row.submitWindow;
     const fresh =
       !previous || now.getTime() - previous.getTime() >= AGENT_WINDOW_MS;
@@ -61,21 +52,19 @@ export async function admitAgent(
           ),
         ),
       );
-    await writeQuota(tx, row.id, scope, window, count + 1);
+    await writeQuota(tx, row.id, quota, window, count + 1);
   });
   return bearer;
 }
 export function withAuthorizedAgent<T>(
   bearer: Bearer,
-  scope: AgentScope,
-  work: (tx: Tx, credential: Credential) => Promise<T>,
+  work: (tx: Tx) => Promise<T>,
 ): Promise<T> {
   return agentTransaction(async (tx) => {
-    const row = await lockCredential(tx, bearer.id);
-    assertCredential(row, bearer, scope, new Date());
-    const result = await work(tx, row);
-    // Expiry during expensive diff work rolls the whole operation back.
-    assertCredential(row, bearer, scope, new Date());
+    await lockAgentState(tx);
+    assertToken(bearer);
+    const result = await work(tx);
+    assertToken(bearer);
     return result;
   });
 }

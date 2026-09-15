@@ -2,68 +2,42 @@ import { describe, expect, it, vi } from "vitest";
 import {
   AGENT_BODY_LIMIT,
   AGENT_BODY_TIMEOUT_MS,
-  AgentScope,
-  createAgentCredential,
-  credentialIssueSchema,
+  configuredTokenMatches,
+  tokenDigest,
   digestMatches,
   parseAgentBearer,
   requestDigest,
 } from "./contract";
 import { readAgentJson } from "./body";
 
-describe("isolated agent credentials and bounded bodies", () => {
-  it("generates distinct high-entropy tokens, keeps only hashes, and parses strict bearer credentials", () => {
-    const credential = createAgentCredential();
-    expect(credential.token).toMatch(
-      /^pt_agent_[a-f0-9-]{36}\.[A-Za-z0-9_-]{43}$/,
-    );
-    expect(credential.tokenHash).not.toContain(credential.token);
-    expect(createAgentCredential().token).not.toBe(credential.token);
-    expect(parseAgentBearer(`bEaReR ${credential.token}`)).toEqual({
-      id: credential.id,
-      tokenHash: credential.tokenHash,
-    });
-    expect(digestMatches(credential.tokenHash, credential.tokenHash)).toBe(
-      true,
-    );
-    expect(digestMatches(credential.tokenHash, "bad")).toBe(false);
-    expect(digestMatches(credential.tokenHash, "0".repeat(64))).toBe(false);
+describe("isolated agent token and bounded bodies", () => {
+  it("accepts strict bearer tokens and rejects missing, malformed or reused server configuration", () => {
+    const token = "a".repeat(64);
+    expect(parseAgentBearer(`bEaReR ${token}`)).toBe(token);
+    expect(configuredTokenMatches(token, token, [])).toBe(true);
+    for (const expected of [
+      undefined,
+      "",
+      "short",
+      "x".repeat(257),
+      " ".repeat(64),
+    ])
+      expect(configuredTokenMatches(token, expected, [])).toBe(false);
+    expect(configuredTokenMatches(token, token, [token])).toBe(false);
+    expect(configuredTokenMatches("b".repeat(64), token, [])).toBe(false);
+    expect(digestMatches(tokenDigest(token), "bad")).toBe(false);
     for (const header of [
       null,
       "",
-      `Basic ${credential.token}`,
-      `Bearer  ${credential.token}`,
-      `Bearer ${credential.token}, Bearer ${credential.token}`,
-      `Bearer ${credential.token} extra`,
+      `Basic ${token}`,
+      `Bearer  ${token}`,
+      `Bearer ${token}, Bearer ${token}`,
+      `Bearer ${token} extra`,
       "Bearer human-session-token",
-      "Bearer pt_agent_not-a-uuid.secret",
     ])
       expect(parseAgentBearer(header)).toBeNull();
   });
-  it("validates credential issuance and canonicalizes only object-key ordering", () => {
-    expect(
-      credentialIssueSchema.safeParse({
-        label: "Codex",
-        days: 90,
-        scopes: [AgentScope.Read, AgentScope.Submit],
-      }).success,
-    ).toBe(true);
-    for (const patch of [
-      { days: 0 },
-      { days: 366 },
-      { scopes: [] },
-      { scopes: ["publish"] },
-      { scopes: [AgentScope.Read, AgentScope.Read] },
-      { label: "new\nline" },
-    ])
-      expect(
-        credentialIssueSchema.safeParse({
-          label: "Codex",
-          days: 90,
-          scopes: [AgentScope.Read],
-          ...patch,
-        }).success,
-      ).toBe(false);
+  it("canonicalizes only object-key ordering", () => {
     expect(requestDigest({ a: 1, b: { c: 2, d: 3 } })).toBe(
       requestDigest({ b: { d: 3, c: 2 }, a: 1 }),
     );
