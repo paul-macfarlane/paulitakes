@@ -11,7 +11,6 @@ import { submitProposalSchema } from "@/lib/proposals/input";
 import { isPubliclyVisible } from "@/lib/posts/status";
 import { ActionErrorCode } from "@/lib/shared/action-result";
 import { admitAgent, withAuthorizedAgent } from "./auth";
-import { readAgentJson } from "./body";
 import {
   findReceipt,
   insertReceipt,
@@ -208,7 +207,9 @@ export async function handleAgentRequest(
           request.headers.get("idempotency-key"),
         );
         if (!key.success) throw new AgentFailure(AgentError.Invalid);
-        const input = await readAgentJson(request);
+        const input: unknown = await request.json().catch(() => {
+          throw new AgentFailure(AgentError.Invalid);
+        });
         work = (tx) => submit(tx, input, key.data, audit);
       } else throw new AgentFailure(AgentError.Method);
     }

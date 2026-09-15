@@ -194,6 +194,56 @@ describe("configured agent API", () => {
     );
     expect(state!.readCount).toBe(2);
   });
+  it.each(["", "not-json-private-marker", "{}"])(
+    "returns a sanitized 400 for malformed JSON or invalid schema (%s)",
+    async (body) => {
+      const auth = await configuredAgent();
+      const response = await submit(
+        new Request("http://localhost/api/agent/v1/edit-proposals", {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${auth.token}`,
+            "content-type": "application/json",
+            "idempotency-key": crypto.randomUUID(),
+          },
+          body,
+        }),
+      );
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({
+        error: "invalid_request",
+        message: "Invalid request.",
+      });
+      expect(JSON.stringify(audit.mock.calls)).not.toContain("private-marker");
+      expect(
+        await testDb
+          .select()
+          .from(agentReceipts)
+          .where(eq(agentReceipts.principalId, auth.id)),
+      ).toHaveLength(0);
+    },
+  );
+  it("parses JSON normally without the former 1 MiB upload cutoff", async () => {
+    const auth = await configuredAgent();
+    const item = await source("ordinary-json");
+    const body = await payload(auth.token, item.id);
+    const response = await submit(
+      new Request("http://localhost/api/agent/v1/edit-proposals", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${auth.token}`,
+          "content-type": "application/json",
+          "idempotency-key": crypto.randomUUID(),
+        },
+        body: " ".repeat(1024 * 1024) + JSON.stringify(body),
+      }),
+    );
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({
+      postId: item.id,
+      replayed: false,
+    });
+  });
   it("returns only review fields across authors, prefers the staged snapshot and does not create one on read", async () => {
     const auth = await configuredAgent();
     const draft = await source("other-author", false, ids.adminId);

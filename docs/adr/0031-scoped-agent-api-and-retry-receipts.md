@@ -1,6 +1,6 @@
 # 0031. Scoped agent API and retry receipts
 
-- **Status:** Credential management superseded by [0032](0032-single-configured-agent-token.md); proposal/retry safeguards retained
+- **Status:** Credential management superseded by [0032](0032-single-configured-agent-token.md); custom request-body handling superseded by [0033](0033-standard-agent-json-parsing.md); proposal/retry safeguards retained
 - **Date:** 2026-09-14
 - **Related:** FR-7.13, technical-design.md §3, AIR-5; extends [0030](0030-ai-review-and-safe-editor-versions.md)
 
