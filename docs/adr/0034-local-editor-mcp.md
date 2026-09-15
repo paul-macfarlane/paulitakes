@@ -1,6 +1,6 @@
 # 0034. Local editor MCP
 
-- **Status:** Accepted
+- **Status:** Superseded by [0035](0035-command-line-editor-client.md)
 - **Date:** 2026-09-15
 - **Related:** AIR-6, FR-7.12–7.13, technical-design.md §4, [0032](0032-single-configured-agent-token.md)
 

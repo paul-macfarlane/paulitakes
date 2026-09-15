@@ -42,4 +42,4 @@ Application audit emits only the fixed operation, outcome, timestamp, server req
 
 ## Local Codex client
 
-Use the [local MCP adapter setup](agent-mcp.md) with this same token. The adapter explicitly loads the installed editor skill and creates proposals through this API; it has no direct database or human-session access.
+Use the [command-line review helper setup](agent-client.md) with this same token. The helper explicitly loads the installed editor skill and creates proposals through this API; it has no direct database or human-session access.
