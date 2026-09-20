@@ -1,5 +1,8 @@
 import { Pool } from "pg";
-import { createProposalDiff } from "../../src/lib/proposals/diff";
+import {
+  createProposalDiff,
+  explanationTarget,
+} from "../../src/lib/proposals/diff";
 import type { ProposalSnapshot } from "../../src/lib/proposals/input";
 
 // Synthetic fixture only: production submission stays behind AIR-5 auth.
@@ -7,6 +10,7 @@ import type { ProposalSnapshot } from "../../src/lib/proposals/input";
 export async function createTestProposal(
   postId: string,
   changes: Partial<ProposalSnapshot> = {},
+  { legacy = false }: { legacy?: boolean } = {},
 ) {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
   try {
@@ -19,6 +23,14 @@ export async function createTestProposal(
     const candidate = { ...base, ...changes };
     const diff = createProposalDiff(base, candidate);
     const notes = {
+      changes: legacy
+        ? undefined
+        : diff.changes.map((change) => ({
+            ...explanationTarget(change),
+            explanation:
+              "Make the suggestion clearer while keeping the author’s voice.",
+            sources: ["https://example.com/editorial-source"],
+          })),
       summary: "Keep the author’s first-person fan voice.",
       editorial: ["Tighten the opening without changing the take."],
       facts: [

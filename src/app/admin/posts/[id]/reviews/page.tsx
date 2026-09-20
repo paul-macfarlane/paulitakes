@@ -11,7 +11,7 @@ import { listProposalsService } from "@/lib/proposals/service";
 import { PROPOSAL_STATUS_LABELS } from "@/lib/proposals/presentation";
 
 export const metadata: Metadata = {
-  title: "AI reviews",
+  title: "Reviews",
   robots: { index: false, follow: false },
 };
 
@@ -42,7 +42,7 @@ export default async function ReviewsPage({
       <Link href={`/admin/posts/${postId}/edit`} className="text-sm underline">
         ← Back to editor
       </Link>
-      <h1 className="text-2xl font-semibold">AI reviews</h1>
+      <h1 className="text-2xl font-semibold">Reviews</h1>
       <p className="text-muted-foreground">
         Reviews suggest changes. You choose what to apply; past reviews stay
         here.
@@ -61,7 +61,7 @@ export default async function ReviewsPage({
                   {PROPOSAL_STATUS_LABELS[proposal.status]}
                 </span>
                 <span className="mt-1 block text-sm text-muted-foreground">
-                  {proposal.agentLabel} ·{" "}
+                  AI · {proposal.agentLabel} ·{" "}
                   <LocalDate
                     iso={proposal.createdAt.toISOString()}
                     display={DateDisplay.DateTime}

@@ -31,6 +31,20 @@ const sourceUrl = z.url({ protocol: /^https?$/ }).max(2048);
 export const proposalNotesSchema = z
   .object({
     summary: noteText,
+    changes: z
+      .array(
+        z
+          .object({
+            changeId: z.string().min(1).max(80),
+            before: z.string().max(100000),
+            after: z.string().max(100000),
+            explanation: noteText,
+            sources: z.array(sourceUrl).max(10),
+          })
+          .strict(),
+      )
+      .max(1000)
+      .optional(),
     editorial: z.array(noteText).max(50),
     facts: z
       .array(

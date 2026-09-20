@@ -125,6 +125,18 @@ async function postRow(id: string) {
 }
 
 describe("immutable review proposals and human decisions", () => {
+  it("rejects mismatched explanations before superseding an open review", async () => {
+    const post = await seed("explanation-mismatch");
+    const existing = await propose(post.id);
+    const payload = await input(post.id);
+    const result = await submitProposalService(principal, {
+      ...payload,
+      supersedesProposalId: existing.id,
+      notes: { ...payload.notes, changes: [] },
+    });
+    expect(result.ok).toBe(false);
+    expect((await proposalRow(existing.id)).status).toBe("open");
+  });
   it.each([false, true])(
     "submission preserves content/version and stores complete source/notes (public=%s)",
     async (published) => {

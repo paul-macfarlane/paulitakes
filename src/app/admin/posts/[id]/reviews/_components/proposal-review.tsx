@@ -28,7 +28,12 @@ import {
 } from "@/lib/proposals/presentation";
 import { PostStatus } from "@/lib/posts/status";
 import { ActionErrorCode, GENERIC_ERROR } from "@/lib/shared/action-result";
-import { ExactText, ReviewNotes, SnapshotContent } from "./review-content";
+import {
+  ExactText,
+  ReviewNotes,
+  SnapshotContent,
+  SourceLink,
+} from "./review-content";
 
 export function ProposalReview({
   proposal,
@@ -60,6 +65,9 @@ export function ProposalReview({
   const [decision, setDecision] = useState<"apply" | "reject" | null>(null);
   const [preview, setPreview] = useState<{ body: string; html: string } | null>(
     null,
+  );
+  const explanations = new Map(
+    proposal.notes.changes?.map((note) => [note.changeId, note]),
   );
   const open = status === ProposalStatus.Open;
   const editable = open && !stale && !pending;
@@ -145,7 +153,7 @@ export function ProposalReview({
         <h1 className="text-2xl font-semibold">Review suggestions</h1>
         <p className="break-words text-lg">{proposal.base.title}</p>
         <p className="text-sm text-muted-foreground">
-          {PROPOSAL_STATUS_LABELS[status]} · {proposal.agentLabel} ·{" "}
+          {PROPOSAL_STATUS_LABELS[status]} · AI · {proposal.agentLabel} ·{" "}
           <LocalDate
             iso={proposal.createdAt.toISOString()}
             display={DateDisplay.DateTime}
@@ -249,6 +257,7 @@ export function ProposalReview({
               </div>
             )}
             {proposal.diff.changes.map((change, index) => {
+              const explanation = explanations.get(change.id);
               const title =
                 change.kind === ChangeKind.Body
                   ? `Body change ${index + 1}`
@@ -323,6 +332,25 @@ export function ProposalReview({
                         }
                       />
                     </div>
+                  </div>
+                  <div className="space-y-2 border-t pt-3 text-sm">
+                    <h3 className="font-medium">Why this change</h3>
+                    <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                      {explanation?.explanation ??
+                        "No explanation supplied for this change."}
+                    </p>
+                    {explanation && explanation.sources.length > 0 && (
+                      <ul
+                        aria-label="Sources for this change"
+                        className="space-y-1"
+                      >
+                        {explanation.sources.map((source, i) => (
+                          <li key={i}>
+                            <SourceLink href={source}>{source}</SourceLink>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
                 </div>
               );

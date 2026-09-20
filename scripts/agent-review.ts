@@ -11,7 +11,7 @@ async function main() {
   const parsed = editorCommandSchema.safeParse(process.argv[2]);
   if (!parsed.success || process.argv.length !== 3)
     throw new EditorCommandError(
-      "Usage: node --import tsx scripts/agent-review.ts <brief|list|read|submit>. Supply JSON on stdin except for brief.",
+      "Usage: node --import tsx scripts/agent-review.ts <brief|list|read|compare|submit>. Supply JSON on stdin except for brief.",
     );
   const config = readConfig(process.env);
   const input =

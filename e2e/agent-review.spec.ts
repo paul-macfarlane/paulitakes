@@ -88,6 +88,22 @@ test("configured agent submits a review, human applies privately, retries retain
     expect(source.snapshot.bodyMd).toBe(original);
     expect(source).not.toHaveProperty("authorId");
     expect(source).not.toHaveProperty("user");
+    const comparison = z
+      .object({
+        changes: z.array(
+          z.object({
+            changeId: z.string(),
+            before: z.string(),
+            after: z.string(),
+          }),
+        ),
+      })
+      .parse(
+        await call("compare", {
+          base: source.snapshot,
+          candidate: { ...source.snapshot, bodyMd: candidate },
+        }),
+      );
     const proposal = {
       postId: post.id,
       sourceVersion: source.sourceVersion,
@@ -96,6 +112,12 @@ test("configured agent submits a review, human applies privately, retries retain
       skillHash: loaded.skill.hash,
       notes: {
         summary: "Tighten the take; preserve its voice.",
+        changes: comparison.changes.map((change) => ({
+          ...change,
+          explanation:
+            "Use singular agreement for defense; preserve the fan voice.",
+          sources: [],
+        })),
         editorial: [
           "Correct subject–verb agreement; retain the first-person fan voice.",
         ],
@@ -128,7 +150,16 @@ test("configured agent submits a review, human applies privately, retries retain
     expect(receipt.replayed).toBe(false);
     await page.goto(`/posts/${post.slug}`);
     await expect(page.locator("article")).toContainText(original);
-    await page.goto(receipt.reviewPath);
+    // Dev refreshes may interrupt navigation immediately after a route compiles.
+    await expect(async () => {
+      await page.goto(receipt.reviewPath);
+      await expect(
+        page.getByText(
+          "Use singular agreement for defense; preserve the fan voice.",
+          { exact: true },
+        ),
+      ).toBeVisible();
+    }).toPass();
     await page
       .locator("summary")
       .filter({ hasText: "Editorial notes" })
@@ -162,8 +193,10 @@ test("configured agent submits a review, human applies privately, retries retain
     // refresh must not race this test's editor navigation.
     await page.reload();
     await expect(page.getByText(/Applied review ·/)).toBeVisible();
-    await page.getByRole("link", { name: "Open editor", exact: true }).click();
-    await expect(page).toHaveURL(new RegExp(`/admin/posts/${post.id}/edit$`));
+    await clickUntil(
+      page.getByRole("link", { name: "Open editor", exact: true }),
+      () => expect(page).toHaveURL(new RegExp(`/admin/posts/${post.id}/edit$`)),
+    );
     await expect(page.locator("#bodyMd")).toHaveValue(candidate);
     await page.goto(`/posts/${post.slug}`);
     await expect(page.locator("article")).toContainText(original);

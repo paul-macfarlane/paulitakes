@@ -179,3 +179,62 @@ describe("strict editorial contract", () => {
     ).toBe(false);
   });
 });
+
+describe("per-change explanations", () => {
+  it("requires complete, unique explanations matching exact diff text when supplied", async () => {
+    const { explanationTarget, explanationsMatch } = await import("./diff");
+    const diff = createProposalDiff(base, {
+      ...base,
+      title: "New title",
+      bodyMd: "New body",
+    });
+    const notes = {
+      summary: "Review",
+      editorial: [],
+      facts: [],
+      media: [],
+      changes: diff.changes.map((change) => ({
+        ...explanationTarget(change),
+        explanation: "Clarify the take.",
+        sources: [],
+      })),
+    };
+    expect(explanationsMatch(diff, notes)).toBe(true);
+    expect(explanationsMatch(diff, { ...notes, changes: undefined })).toBe(
+      true,
+    );
+    expect(
+      explanationsMatch(diff, { ...notes, changes: notes.changes.slice(1) }),
+    ).toBe(false);
+    expect(
+      explanationsMatch(diff, {
+        ...notes,
+        changes: [notes.changes[0], notes.changes[0]],
+      }),
+    ).toBe(false);
+    expect(
+      explanationsMatch(diff, {
+        ...notes,
+        changes: notes.changes.map((n) => ({ ...n, before: "wrong text" })),
+      }),
+    ).toBe(false);
+    expect(
+      explanationsMatch(diff, {
+        ...notes,
+        changes: notes.changes.map((n) => ({ ...n, changeId: "unknown" })),
+      }),
+    ).toBe(false);
+    expect(
+      proposalNotesSchema.safeParse({
+        ...notes,
+        changes: [{ ...notes.changes[0], explanation: " " }],
+      }).success,
+    ).toBe(false);
+    expect(
+      proposalNotesSchema.safeParse({
+        ...notes,
+        changes: [{ ...notes.changes[0], sources: ["javascript:alert(1)"] }],
+      }).success,
+    ).toBe(false);
+  });
+});
