@@ -15,6 +15,7 @@ import { requirePostIdParam } from "@/lib/admin/route-params";
 import { Action, canPerformAction } from "@/lib/auth/permissions";
 import { requireStaff } from "@/lib/auth/session";
 import { PostStatus } from "@/lib/posts/status";
+import { listProposalsService } from "@/lib/proposals/service";
 
 export const metadata: Metadata = {
   title: "Edit post",
@@ -35,6 +36,7 @@ export default async function EditPostPage({
     listActiveCategories(),
   ]);
   if (!post) notFound();
+  const reviews = await listProposalsService(postId, session);
 
   return (
     <>
@@ -51,7 +53,10 @@ export default async function EditPostPage({
         initialPost={post}
       >
         <div className="mb-6 flex flex-col gap-4">
-          <ReviewNavigation postId={post.id} />
+          <ReviewNavigation
+            postId={post.id}
+            hasReviews={reviews.ok ? reviews.data.length > 0 : null}
+          />
           {post.hasPendingChanges ? (
             <PostPendingControls
               postId={post.id}
