@@ -329,6 +329,10 @@ AIR-5 implements the scoped REST API; AIR-6 adds a one-shot command-line helper 
 
 AIR-5 implements `/api/agent/v1/drafts`, `/drafts/[id]` and `/edit-proposals` under that prefix. [ADR-0032](adr/0032-single-configured-agent-token.md) simplifies authentication to one `AGENT_API_TOKEN` per environment; there is no credential-management CLI or table. One stable server principal owns automatically initialized `agent_api_state` quota counters and `agent_receipts` keyed by principal/request UUID. Rotation preserves quota and receipt identity. [ADR-0033](adr/0033-standard-agent-json-parsing.md) uses ordinary JSON parsing and strict schema validation, relying on hosting request limits instead of custom streaming limits. The [operator runbook](runbooks/agent-api.md) documents setup, revocation and the contract. Reads and proposal creation do not mutate public content or invalidate public caches.
 
+#### Review explanations (ADR-0036)
+
+Review notes optionally contain one explanation per stored diff change, bound to its ID and exact before/after values. New command-line submissions require the complete set; legacy reviews remain readable without invented explanations. The server validates correspondence before superseding an existing proposal. No database migration is needed because these notes use the existing JSON storage. The UI uses neutral Reviews labels with explicit AI attribution; future human collaboration reuses the same suggestion/explanation presentation while defining its own permissions.
+
 ### 5.8 SEO & sharing
 
 - Metadata API per post: title, description (derived excerpt), canonical URL

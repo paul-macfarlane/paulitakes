@@ -43,3 +43,4 @@ Create one with `/adr <title>` or `$adr <title>` ([shared workflow](../harness/w
 | [0033](0033-standard-agent-json-parsing.md)                          | Standard agent JSON parsing                                   | Accepted           |
 | [0034](0034-local-editor-mcp.md)                                     | Local editor MCP                                              | Superseded by 0035 |
 | [0035](0035-command-line-editor-client.md)                           | Command-line editor client                                    | Accepted           |
+| [0036](0036-review-explanations.md)                                  | Explanations alongside shared review suggestions              | Accepted           |

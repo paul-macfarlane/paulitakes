@@ -5,8 +5,11 @@ import { z } from "zod";
 import { agentListSchema, parseAgentBearer } from "@/lib/agent/contract";
 import {
   submitProposalSchema,
+  proposalSnapshotSchema,
   skillAttributionSchema,
 } from "@/lib/proposals/input";
+
+import { createProposalDiff, explanationTarget } from "@/lib/proposals/diff";
 
 // Only these fixed messages may reach stderr; raw fetch/schema errors can contain secrets.
 export class EditorCommandError extends Error {}
@@ -42,12 +45,16 @@ export function readConfig(env: Record<string, string | undefined>) {
 
 export const EditorCommand = {
   Brief: "brief",
+  Compare: "compare",
   List: "list",
   Read: "read",
   Submit: "submit",
 } as const;
 export const editorCommandSchema = z.enum(EditorCommand);
 const submissionSchema = submitProposalSchema.omit({ skill: true }).extend({
+  notes: submitProposalSchema.shape.notes.extend({
+    changes: submitProposalSchema.shape.notes.shape.changes.unwrap(),
+  }),
   idempotencyKey: z.uuid(),
   skillHash: skillAttributionSchema.shape.hash,
 });
@@ -125,6 +132,26 @@ export async function runEditorCommand(
         ...(await loadBrief(config.skillPath)),
         idempotencyKey: randomUUID(),
       };
+    case EditorCommand.Compare: {
+      const { base, candidate } = validate(
+        z
+          .object({
+            base: proposalSnapshotSchema,
+            candidate: proposalSnapshotSchema,
+          })
+          .strict(),
+        input,
+      );
+      const diff = createProposalDiff(base, candidate);
+      return {
+        wholeBodyReplacement: diff.wholeBodyReplacement,
+        changes: diff.changes.map((change) => ({
+          ...explanationTarget(change),
+          explanation: "",
+          sources: [],
+        })),
+      };
+    }
     case EditorCommand.List: {
       const { limit, after } = validate(agentListSchema, input);
       const query = new URLSearchParams({ limit: String(limit) });

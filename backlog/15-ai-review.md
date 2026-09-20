@@ -12,3 +12,5 @@ Request-only agent reviews using the Paulitakes Editor skill. AI proposes; human
 AI review ships before broader collaboration. No dependency on the full REV history epic; later human proposals reuse these snapshots/diffs and may link historical revision IDs.
 
 AIR-6 setup: [local client runbook](../docs/runbooks/agent-client.md), [explicit editor workflow](../docs/harness/workflows/agent-review.md), ADR-0035. Live Codex token provisioning and the first real editorial review remain operator steps; automated verification uses synthetic credentials.
+
+- [x] **AIR-7** — Per-suggestion explanations and sources, neutral Reviews labels, and shared presentation contract for future human reviewers (ADR-0036). _(deps: AIR-6)_

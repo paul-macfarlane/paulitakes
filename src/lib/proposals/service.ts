@@ -17,7 +17,11 @@ import {
   type ActionResult,
 } from "@/lib/shared/action-result";
 import { IMMEDIATE } from "@/lib/shared/cache";
-import { applyProposalSelection, createProposalDiff } from "./diff";
+import {
+  applyProposalSelection,
+  createProposalDiff,
+  explanationsMatch,
+} from "./diff";
 import {
   closeProposal,
   findOpenProposal,
@@ -119,6 +123,12 @@ export async function submitProposalService(
           );
           if (invalid) return { ok: false, error: invalid };
           const diff = createProposalDiff(base, candidate);
+          if (!explanationsMatch(diff, data.notes))
+            return {
+              ok: false,
+              error:
+                "Explain every suggested change against its exact before and after text.",
+            };
           const open = await findOpenProposal(tx, data.postId);
           if (open && open.id !== data.supersedesProposalId)
             return {

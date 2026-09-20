@@ -28,9 +28,7 @@ for (const status of ["draft", "published"] as const) {
     try {
       await page.goto(`/admin/posts/${post.id}/edit`);
       await expect(page.locator("#title")).toHaveValue(post.title);
-      await page
-        .getByRole("button", { name: "AI reviews", exact: true })
-        .click();
+      await page.getByRole("button", { name: "Reviews", exact: true }).click();
       await page.getByRole("link", { name: /Open review/ }).click();
       await expect(
         page.getByRole("heading", { name: "Review suggestions" }),
@@ -53,6 +51,17 @@ for (const status of ["draft", "published"] as const) {
       await page
         .getByText("Full comparison — all text and fields", { exact: true })
         .click();
+      await expect(
+        page.getByText("Why this change", { exact: true }).first(),
+      ).toBeVisible();
+      await expect(
+        page
+          .getByRole("link", {
+            name: "https://example.com/editorial-source",
+            exact: true,
+          })
+          .first(),
+      ).toBeVisible();
       await page.getByText(/Editorial notes ·/).click();
       await expect(
         page.getByRole("link", {
@@ -169,15 +178,19 @@ test("saving on review navigation makes an older review stale, with safe rejecti
     categoryId: category.id,
     status: "draft",
   });
-  const proposal = await createTestProposal(post.id, {
-    title: "Suggested title",
-  });
+  const proposal = await createTestProposal(
+    post.id,
+    {
+      title: "Suggested title",
+    },
+    { legacy: true },
+  );
   await context.addCookies([session.cookie]);
   try {
     await page.goto(`/admin/posts/${post.id}/edit`);
     await expect(page.locator("#title")).toHaveValue(post.title);
     await page.locator("#title").fill("");
-    await page.getByRole("button", { name: "AI reviews", exact: true }).click();
+    await page.getByRole("button", { name: "Reviews", exact: true }).click();
     await expect(
       page.getByText(
         "Save your edits or resolve the save conflict before opening reviews.",
@@ -186,8 +199,13 @@ test("saving on review navigation makes an older review stale, with safe rejecti
     await expect(page).toHaveURL(new RegExp(`/admin/posts/${post.id}/edit$`));
     await page.locator("#title").fill(post.title);
     await page.locator("#bodyMd").fill("My new unsaved take.");
-    await page.getByRole("button", { name: "AI reviews", exact: true }).click();
+    await page.getByRole("button", { name: "Reviews", exact: true }).click();
     await page.getByRole("link", { name: /Open review/ }).click();
+    await expect(
+      page.getByText("No explanation supplied for this change.", {
+        exact: true,
+      }),
+    ).toBeVisible();
     await expect(page.locator("main").getByRole("alert")).toContainText(
       "This review is out of date.",
     );

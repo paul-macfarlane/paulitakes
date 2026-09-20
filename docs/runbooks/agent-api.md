@@ -43,3 +43,5 @@ Application audit emits only the fixed operation, outcome, timestamp, server req
 ## Local Codex client
 
 Use the [command-line review helper setup](agent-client.md) with this same token. The helper explicitly loads the installed editor skill and creates proposals through this API; it has no direct database or human-session access.
+
+Per-change explanations use optional `notes.changes` entries containing changeId, exact before/after strings, explanation, and source URLs. If supplied, every server-generated change must have exactly one matching entry; otherwise the request fails without superseding an open review. Older clients may omit the field. The updated CLI requires it and provides a local compare command to generate targets; see [client workflow](agent-client.md#explanations-for-each-suggestion).

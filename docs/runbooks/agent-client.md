@@ -20,14 +20,15 @@ export PAULITAKES_EDITOR_SKILL_PATH="/absolute/path/to/paulitakes-editor/SKILL.m
 
 Ask Codex: **“Use agent-review to review my saved post [title or UUID] and submit a proposal.”** The [review workflow](../harness/workflows/agent-review.md) tells Codex to load the complete editorial skill, read the requested post, research claims and prepare a complete candidate with separate notes. You do not need to construct JSON yourself.
 
-The helper supports four commands. Each successful command prints JSON to stdout. Failure prints a sanitized message to stderr and exits nonzero. All commands except `brief` read a JSON object from stdin; no draft text or credentials belong in command arguments.
+The helper supports five commands. Each successful command prints JSON to stdout. Failure prints a sanitized message to stderr and exits nonzero. All commands except `brief` read a JSON object from stdin; no draft text or credentials belong in command arguments.
 
-| Command  | Input                                      | Output                                                                                               |
-| -------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| `brief`  | None                                       | Full installed brief, `skill.name/hash`, `siteUrl` and a fresh UUID `idempotencyKey` for this review |
-| `list`   | `{}` or `{ "limit": 20, "after": "UUID" }` | Paginated saved-post metadata and next cursor                                                        |
-| `read`   | `{ "postId": "UUID" }`                     | Saved snapshot, source version, category choices and open proposal ID                                |
-| `submit` | Full proposal below                        | Proposal ID, reviewPath and replayed flag                                                            |
+| Command   | Input                                         | Output                                                                                               |
+| --------- | --------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `brief`   | None                                          | Full installed brief, `skill.name/hash`, `siteUrl` and a fresh UUID `idempotencyKey` for this review |
+| `list`    | `{}` or `{ "limit": 20, "after": "UUID" }`    | Paginated saved-post metadata and next cursor                                                        |
+| `read`    | `{ "postId": "UUID" }`                        | Saved snapshot, source version, category choices and open proposal ID                                |
+| `compare` | `{ "base": snapshot, "candidate": snapshot }` | Local diff targets and blank explanations; no network request                                        |
+| `submit`  | Full proposal below                           | Proposal ID, reviewPath and replayed flag                                                            |
 
 For example, Codex can keep request/response files in a private temporary directory:
 
@@ -53,3 +54,9 @@ Open the returned reviewPath on siteUrl. Only the human owner/admin can select/a
 Tests cover fixed authenticated destinations, strict inputs, exact brief attribution, changed-brief rejection, stable retries, sanitized failures and actual CLI process exit/output behavior. The browser regression runs the CLI with a synthetic brief/token, submits through the REST API, verifies separate notes, applies privately and publishes through the human UI.
 
 Live environment provisioning and a model's editorial/research quality need a real requested review after setup. The installed editorial brief can be checked locally without touching production content; hash attribution does not certify compliance or factual accuracy.
+
+## Explanations for each suggestion
+
+After preparing a candidate, run `compare` with the saved snapshot as `base` and the complete `candidate`. Copy its `changes` into `notes.changes`, fill every `explanation` with a concise reason for that specific edit, and add relevant factual evidence URLs to `sources` (otherwise an empty array). Preserve the returned changeId, before and after exactly. Metadata targets use JSON strings; body targets use exact Markdown text. Re-run comparison if you revise the candidate.
+
+The updated helper requires these explanations. The API accepts omitted changes for older clients and retained reviews, but any supplied list must cover every server-generated change exactly once with matching before/after text. A mismatch is rejected before replacing an open review. If diff boundaries differ (including a large-rewrite fallback), reconsider the comparison before resubmitting; do not attach explanations to guessed IDs. Explanations and sources remain outside the article.

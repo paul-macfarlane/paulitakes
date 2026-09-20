@@ -34,7 +34,7 @@ export function ReviewNavigation({ postId }: { postId: string }) {
         onClick={() => void openReviews()}
         disabled={pending}
       >
-        {pending ? "Saving…" : "AI reviews"}
+        {pending ? "Saving…" : "Reviews"}
       </Button>
       <p className="mt-2 text-sm text-muted-foreground">
         Compare suggestions and choose what to keep. Your edits save before you

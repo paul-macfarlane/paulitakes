@@ -29,7 +29,13 @@ const proposal = () => ({
     bannerUrl: null,
     videoUrl: null,
   },
-  notes: { summary: "Preserve voice.", editorial: [], facts: [], media: [] },
+  notes: {
+    summary: "Preserve voice.",
+    editorial: [],
+    facts: [],
+    media: [],
+    changes: [],
+  },
 });
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "editor-client-"));
@@ -49,6 +55,26 @@ afterEach(async () => {
 });
 
 describe("local review client", () => {
+  it("compares saved snapshots locally and returns exact explanation targets", async () => {
+    const base = proposal().candidate;
+    const result = await call("compare", {
+      base,
+      candidate: { ...base, title: "Sharper title" },
+    });
+    expect(result).toEqual({
+      wholeBodyReplacement: false,
+      changes: [
+        {
+          changeId: "field:title",
+          before: JSON.stringify(base.title),
+          after: JSON.stringify("Sharper title"),
+          explanation: "",
+          sources: [],
+        },
+      ],
+    });
+    expect(http).not.toHaveBeenCalled();
+  });
   it("loads the complete installed brief, exact attribution and a new retry key", async () => {
     const loaded = await call("brief");
     expect(loaded).toEqual({
@@ -122,6 +148,12 @@ describe("local review client", () => {
     await expect(call("read", { postId: "../../users" })).rejects.toThrow(
       "Invalid command input",
     );
+    await expect(
+      call("submit", {
+        ...proposal(),
+        notes: { summary: "Legacy", editorial: [], facts: [], media: [] },
+      }),
+    ).rejects.toThrow("Invalid command input");
     expect(http).not.toHaveBeenCalled();
   });
   it("refuses submission when the loaded hash is missing, wrong, or the installed brief changed", async () => {

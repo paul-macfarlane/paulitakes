@@ -60,7 +60,7 @@ export function SnapshotContent({
   );
 }
 
-function SourceLink({
+export function SourceLink({
   href,
   children,
 }: {
@@ -87,8 +87,8 @@ export function ReviewNotes({ notes }: { notes: ProposalNotes }) {
       </h2>
       <p className="text-sm text-muted-foreground">
         These notes stay with the review. Applying changes does not add them to
-        your article. Fact-check labels are the agent’s assessments; check the
-        linked evidence.
+        your article. Fact-check labels are the reviewer’s assessments; check
+        the linked evidence.
       </p>
       <p className="whitespace-pre-wrap break-words">{notes.summary}</p>
       {notes.editorial.length > 0 && (

@@ -1,5 +1,5 @@
 import { diffLines } from "diff";
-import type { ProposalSnapshot } from "./input";
+import type { ProposalSnapshot, ProposalNotes } from "./input";
 
 export const ChangeKind = { Body: "body", Metadata: "metadata" } as const;
 export const METADATA_FIELDS = [
@@ -147,4 +147,34 @@ export function applyProposalSelection(
   }
   result.bodyMd = body + base.bodyMd.slice(cursor);
   return result;
+}
+
+// Exact text guards against a client/server diff boundary or fallback changing.
+export function explanationTarget(change: ProposalChange) {
+  return {
+    changeId: change.id,
+    before:
+      change.kind === ChangeKind.Body
+        ? change.before
+        : JSON.stringify(change.before),
+    after:
+      change.kind === ChangeKind.Body
+        ? change.after
+        : JSON.stringify(change.after),
+  };
+}
+
+export function explanationsMatch(
+  diff: ProposalDiff,
+  notes: ProposalNotes,
+): boolean {
+  if (!notes.changes) return true; // Retained reviews and older API clients.
+  if (notes.changes.length !== diff.changes.length) return false;
+  const byId = new Map(notes.changes.map((note) => [note.changeId, note]));
+  if (byId.size !== notes.changes.length) return false;
+  return diff.changes.every((change) => {
+    const note = byId.get(change.id);
+    const target = explanationTarget(change);
+    return note?.before === target.before && note?.after === target.after;
+  });
 }
