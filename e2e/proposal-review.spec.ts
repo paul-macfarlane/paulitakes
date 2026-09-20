@@ -19,15 +19,22 @@ for (const status of ["draft", "published"] as const) {
       status,
       bodyMd: "I like this team.\n\nKeep my fan voice.\n",
     });
-    const proposal = await createTestProposal(post.id, {
-      title: "A sharper title",
-      ...(status === "published" ? { slug: `${post.slug}-updated` } : {}),
-      bodyMd: "I love this team.\n\nKeep my fan voice.\n",
-    });
     await context.addCookies([session.cookie]);
     try {
       await page.goto(`/admin/posts/${post.id}/edit`);
       await expect(page.locator("#title")).toHaveValue(post.title);
+      await expect(
+        page.getByText("Reviews available", { exact: true }),
+      ).toBeHidden();
+      const proposal = await createTestProposal(post.id, {
+        title: "A sharper title",
+        ...(status === "published" ? { slug: `${post.slug}-updated` } : {}),
+        bodyMd: "I love this team.\n\nKeep my fan voice.\n",
+      });
+      await page.reload();
+      await expect(
+        page.getByText("Reviews available", { exact: true }),
+      ).toBeVisible();
       await page.getByRole("button", { name: "Reviews", exact: true }).click();
       await page.getByRole("link", { name: /Open review/ }).click();
       await expect(
@@ -147,6 +154,9 @@ for (const status of ["draft", "published"] as const) {
       await expect(page.locator("#bodyMd")).toHaveValue(
         proposal.candidate.bodyMd,
       );
+      await expect(
+        page.getByText("Reviews available", { exact: true }),
+      ).toBeVisible();
       if (status === "published") {
         await expect(
           page.getByRole("button", { name: "Publish changes", exact: true }),
