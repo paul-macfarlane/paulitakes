@@ -32,10 +32,16 @@ import {
 } from "@/db/schema";
 import type { StaffSession } from "@/lib/auth/guards";
 import { Action, canPerformAction } from "@/lib/auth/permissions";
-import { tagToSlug, type PostDraft, type PostInput } from "@/lib/posts/input";
+import {
+  tagToSlug,
+  type PostDraft,
+  type PostInput,
+  type SavedPost,
+} from "@/lib/posts/input";
 import {
   PostStatus,
   PUBLIC_STATUSES,
+  isPubliclyVisible,
   usesDraftBuffer,
 } from "@/lib/posts/status";
 import { NOT_AUTHORIZED_ERROR } from "@/lib/shared/action-result";
@@ -89,7 +95,7 @@ export async function categoryExists(categoryId: number): Promise<boolean> {
 
 // Transaction type accepted by `db.transaction(async (tx) => ...)` — both
 // the Neon and node-postgres drivers behind `Db` share this shape.
-type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
+export type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 // Tag names as typed by the author -> upserted rows attached to the post.
 // Normalizes (trim, dedupe by derived slug, drop empties), upserts any new
@@ -136,7 +142,7 @@ export async function insertPost(
   slug: string,
   data: PostInput,
   authorId: string,
-): Promise<{ id: string; slug: string }> {
+): Promise<{ id: string; slug: string; editVersion: string }> {
   return db.transaction(async (tx) => {
     const [row] = await tx
       .insert(posts)
@@ -150,7 +156,11 @@ export async function insertPost(
         videoUrl: data.videoUrl,
         categoryId: data.categoryId,
       })
-      .returning({ id: posts.id, slug: posts.slug });
+      .returning({
+        id: posts.id,
+        slug: posts.slug,
+        editVersion: posts.editVersion,
+      });
 
     await setPostTags(tx, row!.id, data.tags);
 
@@ -172,6 +182,7 @@ export async function loadPostTagNames(postId: string): Promise<string[]> {
 // Existing row loaded by updatePost to decide direct-write vs staged-draft
 // and to run the ownership check.
 export type ExistingPostForUpdate = {
+  editVersion: string;
   authorId: string;
   slug: string;
   status: PostStatus;
@@ -184,6 +195,7 @@ export async function loadPostForUpdate(
 ): Promise<ExistingPostForUpdate | undefined> {
   const [row] = await db
     .select({
+      editVersion: posts.editVersion,
       authorId: posts.authorId,
       slug: posts.slug,
       status: posts.status,
@@ -201,7 +213,8 @@ export async function loadPostForUpdate(
 class ThumbnailInvariantError extends Error {}
 
 export type WritePostColumnsResult =
-  | { ok: true }
+  | { ok: true; editVersion: string }
+  | { ok: false; reason: "conflict" }
   | { ok: false; reason: "thumbnail-invariant" }
   | { ok: false; reason: "slug-collision" };
 
@@ -221,35 +234,16 @@ export type PostColumnUpdate = Omit<
 export async function writePostColumns(
   id: string,
   columnUpdates: PostColumnUpdate,
-  opts: { guardThumbnailInvariant: boolean; tags?: string[] },
+  opts: {
+    guardThumbnailInvariant: boolean;
+    tags?: string[];
+    expectedVersion: string;
+  },
 ): Promise<WritePostColumnsResult> {
   try {
-    await db.transaction(async (tx) => {
-      // When clearing the thumbnail, guard the write on the status still
-      // being draft/archived — a concurrent publish between our read and
-      // this write would otherwise slip a "" thumbnail onto a live post.
-      const updated = await tx
-        .update(posts)
-        .set(columnUpdates)
-        .where(
-          opts.guardThumbnailInvariant
-            ? and(
-                eq(posts.id, id),
-                notInArray(posts.status, [...PUBLIC_STATUSES]),
-              )
-            : eq(posts.id, id),
-        )
-        .returning({ id: posts.id });
-
-      if (opts.guardThumbnailInvariant && updated.length === 0) {
-        throw new ThumbnailInvariantError();
-      }
-
-      if (opts.tags !== undefined) {
-        await setPostTags(tx, id, opts.tags);
-      }
+    return await db.transaction(async (tx): Promise<WritePostColumnsResult> => {
+      return writePostColumnsInTransaction(tx, id, columnUpdates, opts);
     });
-    return { ok: true };
   } catch (err) {
     if (err instanceof ThumbnailInvariantError) {
       return { ok: false, reason: "thumbnail-invariant" };
@@ -263,6 +257,52 @@ export async function writePostColumns(
     }
     throw err;
   }
+}
+
+// Composed with a proposal decision in the same transaction. Errors propagate
+// so any failed write rolls back the decision too.
+export async function writePostColumnsInTransaction(
+  tx: Tx,
+  id: string,
+  columnUpdates: PostColumnUpdate,
+  opts: {
+    guardThumbnailInvariant: boolean;
+    tags?: string[];
+    expectedVersion: string;
+  },
+): Promise<WritePostColumnsResult> {
+  const post = await lockPostRow(tx, id);
+  if (
+    !post ||
+    post.editVersion !== opts.expectedVersion ||
+    isPubliclyVisible(post)
+  ) {
+    return { ok: false, reason: "conflict" };
+  }
+  if (Object.keys(columnUpdates).length === 0 && opts.tags === undefined) {
+    return { ok: true, editVersion: post.editVersion };
+  }
+  // When clearing the thumbnail, guard the write on the status still
+  // being draft/archived — a concurrent publish between our read and
+  // this write would otherwise slip a "" thumbnail onto a live post.
+  const updated = await tx
+    .update(posts)
+    .set({ ...columnUpdates, editVersion: crypto.randomUUID() })
+    .where(
+      opts.guardThumbnailInvariant
+        ? and(eq(posts.id, id), notInArray(posts.status, [...PUBLIC_STATUSES]))
+        : eq(posts.id, id),
+    )
+    .returning({ id: posts.id, editVersion: posts.editVersion });
+
+  if (opts.guardThumbnailInvariant && updated.length === 0) {
+    throw new ThumbnailInvariantError();
+  }
+
+  if (opts.tags !== undefined) {
+    await setPostTags(tx, id, opts.tags);
+  }
+  return { ok: true, editVersion: updated[0]!.editVersion };
 }
 
 export async function deletePostRow(
@@ -473,7 +513,7 @@ export async function loadOwnedDraft(
       post: {
         slug: string;
         draft: PostDraft | null;
-        draftUpdatedAt: Date | null;
+        editVersion: string;
       };
     }
   | { ok: false; error: string }
@@ -481,6 +521,7 @@ export async function loadOwnedDraft(
   const [existing] = await db
     .select({
       authorId: posts.authorId,
+      editVersion: posts.editVersion,
       slug: posts.slug,
       ...draftJoinColumns,
     })
@@ -501,7 +542,7 @@ export async function loadOwnedDraft(
     post: {
       slug: existing.slug,
       draft: draftFromJoinRow(existing),
-      draftUpdatedAt: existing.draftUpdatedAt,
+      editVersion: existing.editVersion,
     },
   };
 }
@@ -573,15 +614,6 @@ export function unchanged(column: PgColumn, value: Date | null): SQL {
   return value === null ? isNull(column) : eq(column, value);
 }
 
-// Null-safe equality on the CAS token, compared in memory (post_drafts.
-// updated_at, once the row's been read inside the caller's transaction)
-// rather than as a SQL predicate — the caller already holds the row lock, so
-// there's no race between reading it and comparing.
-function sameTimestamp(a: Date | null, b: Date | null): boolean {
-  if (a === null || b === null) return a === b;
-  return a.getTime() === b.getTime();
-}
-
 // Held for the rest of the caller's transaction, so every draft-buffer write
 // for the same post (stage, clear, promote) serializes against the others —
 // the same guarantee the old single `UPDATE posts SET draft = ...` CAS
@@ -589,111 +621,131 @@ function sameTimestamp(a: Date | null, b: Date | null): boolean {
 // lives in its own table (ADR-0012). Returns the row's status (callers also
 // need "is this post still publicly visible?"), or undefined if the post no
 // longer exists.
-async function lockPostRow(
+export async function lockPostRow(
   tx: Tx,
   id: string,
-): Promise<{ status: PostStatus } | undefined> {
+): Promise<ExistingPostForUpdate | undefined> {
   const [row] = await tx
-    .select({ status: posts.status })
+    .select({
+      status: posts.status,
+      editVersion: posts.editVersion,
+      authorId: posts.authorId,
+      slug: posts.slug,
+      publishAt: posts.publishAt,
+      archiveAt: posts.archiveAt,
+    })
     .from(posts)
     .where(eq(posts.id, id))
     .for("update");
   return row;
 }
 
-// Reads the current post_drafts row's CAS token inside the caller's
-// transaction (which must already hold the post row lock from lockPostRow).
-async function readDraftUpdatedAt(tx: Tx, id: string): Promise<Date | null> {
-  const [row] = await tx
-    .select({ updatedAt: postDrafts.updatedAt })
-    .from(postDrafts)
-    .where(eq(postDrafts.postId, id))
-    .limit(1);
-  return row?.updatedAt ?? null;
+// Even an explicit no-op flush must prove the editor is current before a
+// lifecycle control can proceed. Do not return a newly read token to a stale UI.
+export async function checkEditVersion(
+  id: string,
+  expectedVersion: string,
+): Promise<SavedPost | null> {
+  return db.transaction(async (tx) => {
+    const post = await lockPostRow(tx, id);
+    if (!post || post.editVersion !== expectedVersion) return null;
+    const [draft] = usesDraftBuffer(post.status)
+      ? await tx
+          .select({ slug: postDrafts.slug })
+          .from(postDrafts)
+          .where(eq(postDrafts.postId, id))
+      : [];
+    return {
+      id,
+      slug: draft?.slug ?? post.slug,
+      editVersion: post.editVersion,
+    };
+  });
 }
 
-// Reverting edits back to the live content leaves nothing to stage — clears
-// the buffer so the post isn't stuck showing "pending changes" with its
-// status/schedule controls locked. Returns whether the write landed.
-//
-// Both this and writeStagedDraft below CAS on draftUpdatedAt (a concurrent
-// stage/publish that changed the buffer between our read and this write
-// matches nothing — a conflict, not a silent clobber) and on status (so a
-// concurrent unpublish can't strand the snapshot on a now-draft post). Both
-// guards are enforced by locking the post row first (lockPostRow) and
-// re-reading post_drafts inside that lock, rather than as a single UPDATE ...
-// WHERE — see ADR-0012.
+// Every staged mutation invalidates the parent editor identity in the same
+// transaction. The parent lock serializes it with direct/lifecycle writes.
+async function advanceEditVersion(tx: Tx, id: string): Promise<string> {
+  const [row] = await tx
+    .update(posts)
+    .set({ editVersion: crypto.randomUUID() })
+    .where(eq(posts.id, id))
+    .returning({ editVersion: posts.editVersion });
+  return row!.editVersion;
+}
+
 export async function clearStagedDraft(
   id: string,
-  draftUpdatedAt: Date | null,
-): Promise<boolean> {
+  expectedVersion: string,
+): Promise<string | null> {
   return db.transaction(async (tx) => {
     const post = await lockPostRow(tx, id);
-    if (!post || !usesDraftBuffer(post.status)) return false;
-
-    const current = await readDraftUpdatedAt(tx, id);
-    if (!sameTimestamp(draftUpdatedAt, current)) return false;
-
-    if (current !== null) {
-      await tx.delete(postDrafts).where(eq(postDrafts.postId, id));
-    }
-    return true;
+    if (
+      !post ||
+      post.editVersion !== expectedVersion ||
+      !isPubliclyVisible(post)
+    )
+      return null;
+    return replaceStagedSnapshot(tx, id, null, post.editVersion);
   });
 }
 
-// Writes (or merges onto) the staged snapshot. Returns whether the write
-// landed. See clearStagedDraft above for the shared CAS/status-guard design.
 export async function writeStagedDraft(
   id: string,
-  draftUpdatedAt: Date | null,
+  expectedVersion: string,
   snapshot: PostDraft,
-): Promise<boolean> {
+): Promise<string | null> {
   return db.transaction(async (tx) => {
     const post = await lockPostRow(tx, id);
-    if (!post || !usesDraftBuffer(post.status)) return false;
-
-    const current = await readDraftUpdatedAt(tx, id);
-    if (!sameTimestamp(draftUpdatedAt, current)) return false;
-
-    const values = {
-      title: snapshot.title,
-      slug: snapshot.slug,
-      bodyMd: snapshot.bodyMd,
-      categoryId: snapshot.categoryId,
-      thumbnailUrl: snapshot.thumbnailUrl,
-      bannerUrl: snapshot.bannerUrl,
-      videoUrl: snapshot.videoUrl,
-      tags: snapshot.tags,
-      updatedAt: new Date(),
-    };
-    if (current === null) {
-      await tx.insert(postDrafts).values({ postId: id, ...values });
-    } else {
-      await tx.update(postDrafts).set(values).where(eq(postDrafts.postId, id));
-    }
-    return true;
+    if (
+      !post ||
+      post.editVersion !== expectedVersion ||
+      !isPubliclyVisible(post)
+    )
+      return null;
+    return replaceStagedSnapshot(tx, id, snapshot, post.editVersion);
   });
+}
+
+export async function replaceStagedSnapshot(
+  tx: Tx,
+  id: string,
+  snapshot: PostDraft | null,
+  currentVersion: string,
+): Promise<string> {
+  if (snapshot === null) {
+    const removed = await tx
+      .delete(postDrafts)
+      .where(eq(postDrafts.postId, id))
+      .returning({ id: postDrafts.postId });
+    return removed.length ? advanceEditVersion(tx, id) : currentVersion;
+  }
+  await tx
+    .insert(postDrafts)
+    .values({ postId: id, ...snapshot, updatedAt: new Date() })
+    .onConflictDoUpdate({
+      target: postDrafts.postId,
+      set: { ...snapshot, updatedAt: new Date() },
+    });
+  return advanceEditVersion(tx, id);
 }
 
 // Promotes a staged snapshot to the live columns and clears the buffer, in
 // one transaction (ADR-0011), serializing against any concurrent
 // stage/clear/promote via the post row lock (ADR-0012). A concurrent
 // autosave that re-staged newer edits between the caller's read and here
-// changes updated_at, matching nothing here, so the transaction rolls back
+// changes editVersion (even within the same millisecond), so the transaction rolls back
 // and the caller reports a conflict instead of promoting a stale snapshot
 // and discarding the newer one.
 export async function promoteStagedDraft(
   id: string,
-  draftUpdatedAt: Date | null,
+  expectedVersion: string,
   draft: PostDraft,
 ): Promise<"promoted" | "conflict" | "slug-collision"> {
   try {
     const promoted = await db.transaction(async (tx) => {
       const post = await lockPostRow(tx, id);
-      if (!post) return false;
-
-      const current = await readDraftUpdatedAt(tx, id);
-      if (!sameTimestamp(draftUpdatedAt, current)) return false;
+      if (!post || post.editVersion !== expectedVersion) return false;
 
       const rows = await tx
         .update(posts)
@@ -713,9 +765,7 @@ export async function promoteStagedDraft(
         .returning({ id: posts.id });
       if (rows.length === 0) return false;
 
-      if (current !== null) {
-        await tx.delete(postDrafts).where(eq(postDrafts.postId, id));
-      }
+      await tx.delete(postDrafts).where(eq(postDrafts.postId, id));
       await setPostTags(tx, id, draft.tags);
       return true;
     });
@@ -729,15 +779,17 @@ export async function promoteStagedDraft(
   }
 }
 
-// Unconditional (no CAS): a discard never conflicts with a concurrent stage,
-// only with a concurrent promote, and it always wins that race. Still locks
-// the post row first, matching every other draft-buffer mutator (lockPostRow,
-// then post_drafts): that shared lock ordering is what actually serializes
-// discard against stage/promote, so the two can't interleave.
-export async function clearPostDraftUnconditional(id: string): Promise<void> {
-  await db.transaction(async (tx) => {
-    await lockPostRow(tx, id);
-    await tx.delete(postDrafts).where(eq(postDrafts.postId, id));
+// Discard only the version read by this request; a concurrent apply or save
+// must survive rather than being silently discarded.
+export async function discardStagedDraft(
+  id: string,
+  expectedVersion: string,
+): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const post = await lockPostRow(tx, id);
+    if (!post || post.editVersion !== expectedVersion) return false;
+    await replaceStagedSnapshot(tx, id, null, post.editVersion);
+    return true;
   });
 }
 

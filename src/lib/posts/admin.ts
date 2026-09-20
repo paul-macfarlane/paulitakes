@@ -27,6 +27,7 @@ import { escapeLike } from "@/lib/shared/sql-like";
 // but the row still carries them — omitted here since nothing reads them yet.
 export type EditablePost = {
   id: string;
+  editVersion: string;
   title: string;
   slug: string;
   bodyMd: string;
@@ -67,6 +68,7 @@ export async function getEditablePost(
   const rows = await db
     .select({
       id: posts.id,
+      editVersion: posts.editVersion,
       title: posts.title,
       slug: posts.slug,
       bodyMd: posts.bodyMd,
@@ -106,6 +108,7 @@ export async function getEditablePost(
 
   return {
     id: first.id,
+    editVersion: first.editVersion,
     title: draft?.title ?? first.title,
     slug: draft?.slug ?? first.slug,
     bodyMd: draft?.bodyMd ?? first.bodyMd,

@@ -288,3 +288,25 @@ export async function seedPost(
     .returning({ id: posts.id, slug: posts.slug });
   return row!;
 }
+
+export async function loadEditVersion(
+  testDb: TestDb,
+  postId: string,
+): Promise<string> {
+  const [row] = await testDb
+    .select({ version: schema.posts.editVersion })
+    .from(schema.posts)
+    .where(eq(schema.posts.id, postId));
+  if (!row) throw new Error("Missing synthetic post");
+  return row.version;
+}
+
+// Existing behavior suites model a fresh editor per save. Concurrency suites
+// must retain and explicitly submit an earlier token instead of using this helper.
+export function freshPostUpdater(
+  testDb: TestDb,
+  update: typeof import("@/actions/posts/crud").updatePost,
+) {
+  return async (id: string, input: unknown) =>
+    update(id, input, await loadEditVersion(testDb, id));
+}

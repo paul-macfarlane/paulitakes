@@ -104,3 +104,7 @@ export const slugParamSchema = basePostInputSchema.shape.slug.unwrap();
 export type PostInput = z.infer<typeof postInputSchema>;
 export type PostUpdate = z.infer<typeof postUpdateSchema>;
 export type PostDraft = z.infer<typeof postDraftSchema>;
+
+// Opaque mutable-state token, shared by editor saves and future AI proposals.
+export const editVersionSchema = z.uuid();
+export type SavedPost = { id: string; slug: string; editVersion: string };

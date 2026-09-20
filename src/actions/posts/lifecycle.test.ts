@@ -1,3 +1,4 @@
+import { freshPostUpdater } from "@/test/helpers";
 import { eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
@@ -35,7 +36,8 @@ vi.mock("next/cache", () => ({ revalidateTag: vi.fn() }));
 // this file are the lifecycle transitions. See crud.test.ts for updatePost's
 // own staging behavior and draft.test.ts for publishPostChanges/
 // discardPostChanges.
-const { updatePost } = await import("./crud");
+const { updatePost: updateVersionedPost } = await import("./crud");
+const updatePost = freshPostUpdater(testDb, updateVersionedPost);
 const {
   transitionPostStatus,
   schedulePublish,

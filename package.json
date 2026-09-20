@@ -38,6 +38,7 @@
     "better-auth": "^1.6.23",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "diff": "^9.0.0",
     "drizzle-orm": "^0.45.2",
     "lite-youtube-embed": "^0.3.4",
     "lucide-react": "^1.23.0",

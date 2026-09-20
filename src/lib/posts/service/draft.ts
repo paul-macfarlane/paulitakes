@@ -10,13 +10,14 @@ import { revalidateTag } from "next/cache";
 import type { StaffSession } from "@/lib/auth/guards";
 import {
   categoryExists,
-  clearPostDraftUnconditional,
+  discardStagedDraft,
   loadOwnedDraft,
   promoteStagedDraft,
 } from "@/lib/posts/data";
 import { postDraftSchema } from "@/lib/posts/input";
 import {
   CONFLICT_ERROR,
+  CONFLICT_RESULT,
   GENERIC_ERROR,
   type ActionResult,
 } from "@/lib/shared/action-result";
@@ -34,7 +35,7 @@ export async function publishPostChangesService(
   try {
     const loaded = await loadOwnedDraft(id, session);
     if (!loaded.ok) return loaded;
-    const { slug: oldSlug, draft: staged, draftUpdatedAt } = loaded.post;
+    const { slug: oldSlug, draft: staged, editVersion } = loaded.post;
 
     // Nothing staged — idempotent success (a double-click, or already promoted
     // / discarded on another tab).
@@ -55,11 +56,11 @@ export async function publishPostChangesService(
       return { ok: false, error: "Unknown category." };
     }
 
-    // CAS on draftUpdatedAt: a concurrent autosave that re-staged newer edits
+    // CAS on editVersion: a concurrent autosave that re-staged newer edits
     // between our read and here matches no row, so we roll back and report a
     // conflict instead of promoting a stale snapshot and nulling the newer
     // one.
-    const promoted = await promoteStagedDraft(id, draftUpdatedAt, draft);
+    const promoted = await promoteStagedDraft(id, editVersion, draft);
     if (promoted === "conflict") {
       return { ok: false, error: CONFLICT_ERROR };
     }
@@ -95,7 +96,8 @@ export async function discardPostChangesService(
       return { ok: true, data: { id } };
     }
 
-    await clearPostDraftUnconditional(id);
+    if (!(await discardStagedDraft(id, loaded.post.editVersion)))
+      return CONFLICT_RESULT;
 
     return { ok: true, data: { id } };
   } catch (err) {
