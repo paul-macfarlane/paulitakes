@@ -113,7 +113,7 @@ test.describe("like buttons", () => {
     await author.cleanup();
   });
 
-  test("signed-out visitor sees like counts but a tap shows a sign-in message", async ({
+  test("signed-out visitor sees like counts but a tap shows a sign-in link", async ({
     page,
   }) => {
     await page.goto(`/posts/${post.slug}`);
@@ -126,7 +126,14 @@ test.describe("like buttons", () => {
     await expect(commentLikeButton).toContainText("1");
 
     await postLikeButton.click();
-    await expect(page.getByText("Sign in to like.")).toBeVisible();
+    const signInLink = page
+      .getByRole("status")
+      .filter({ hasText: "to like this." })
+      .getByRole("link", { name: "Sign in" });
+    await expect(signInLink).toHaveAttribute(
+      "href",
+      `/sign-in?next=${encodeURIComponent(`/posts/${post.slug}`)}`,
+    );
     // No optimistic flip happened — still just the baseline count.
     await expect(postLikeButton).toContainText("1");
     await expect(postLikeButton).toHaveAttribute("aria-pressed", "false");

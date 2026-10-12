@@ -1,6 +1,8 @@
 "use client";
 
 import { ThumbsUp } from "lucide-react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import {
   useEffect,
   useOptimistic,
@@ -60,6 +62,10 @@ export function LikeButton({
   );
   const [, startTransition] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
+  // Sticky (no timeout), unlike `message`: it holds a link, and a link that
+  // vanishes mid-reach is a missed tap.
+  const [promptSignIn, setPromptSignIn] = useState(false);
+  const pathname = usePathname();
   const messageTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -79,7 +85,7 @@ export function LikeButton({
 
   function handleClick() {
     if (!signedIn) {
-      showMessage("Sign in to like.");
+      setPromptSignIn(true);
       return;
     }
 
@@ -116,14 +122,30 @@ export function LikeButton({
         />
         <span className="text-muted-foreground">{optimistic.count}</span>
       </Button>
-      {message && (
+      {promptSignIn ? (
         <p
           role="status"
           aria-live="polite"
           className="text-xs text-muted-foreground"
         >
-          {message}
+          <Link
+            href={`/sign-in?next=${encodeURIComponent(pathname)}`}
+            className="underline underline-offset-2 hover:text-foreground"
+          >
+            Sign in
+          </Link>{" "}
+          to like this.
         </p>
+      ) : (
+        message && (
+          <p
+            role="status"
+            aria-live="polite"
+            className="text-xs text-muted-foreground"
+          >
+            {message}
+          </p>
+        )
       )}
     </div>
   );
